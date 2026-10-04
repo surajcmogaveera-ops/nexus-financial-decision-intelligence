@@ -14,6 +14,10 @@ import {
   calculateScenarioDelta,
   calculateSavingsRate,
   calculateScenarioRiskFlags,
+  calculateRiskFlags,
+  calculationEvidenceId,
+  canonicalEvidenceNumber,
+  canonicalizeEvidenceValue,
   monthsBetweenDates,
   projectGoal,
 } from "../dist/financial/engine/index.js";
@@ -119,6 +123,10 @@ test("scenario absolute and percentage deltas are deterministic", () => {
     delta: "-10000",
     percentageDelta: -25,
   });
+  assert.deepEqual(calculateLiquidityImpact(null, "30000"), {
+    delta: null,
+    percentageDelta: null,
+  });
 });
 
 test("risk flags preserve the deterministic reference conditions and order", () => {
@@ -156,6 +164,141 @@ test("risk flags preserve the deterministic reference conditions and order", () 
   );
 });
 
+test("ported risk detector matches reference ordering, explicit metrics and stable evidence", () => {
+  const baseline = twin({
+    ...BASIC_PROFILE,
+    goals: [{ name: "Goal", targetAmount: "100", currentAllocatedAmount: "50", monthsRemaining: 10, monthlyContribution: "5" }],
+  });
+  const scenario = twin({
+    ...BASIC_PROFILE,
+    monthlyExpenses: "32000",
+    monthlyDebtPayments: "3000",
+    liquidSavings: "30000",
+    essentialMonthlyExpenses: "25000",
+    goals: [{ name: "Goal", targetAmount: "200", currentAllocatedAmount: "50", monthsRemaining: 10, monthlyContribution: "5" }],
+  });
+  const options = {
+    baselineLiquidSavings: baseline.raw.liquidSavings,
+    scenarioLiquidSavings: scenario.raw.liquidSavings,
+    baselineGoalFeasible: true,
+    scenarioGoalFeasible: false,
+  };
+  const first = calculateRiskFlags(baseline.derived, scenario.derived, options);
+  const second = calculateRiskFlags(baseline.derived, scenario.derived, options);
+  assert.deepEqual(first, second);
+  assert.deepEqual(first.flags.map(({ type, severity }) => [type, severity]), [
+    ["LIQUIDITY_REDUCTION", "medium"],
+    ["GOAL_SHORTFALL", "high"],
+    ["NEGATIVE_SURPLUS", "high"],
+    ["HIGHER_DEBT_BURDEN", "high"],
+    ["EMERGENCY_COVERAGE_REDUCTION", "medium"],
+  ]);
+  const evidence = new Map(first.calculations.map((item) => [item.evidenceId, item]));
+  for (const flag of first.flags) {
+    assert.ok(flag.evidence.length > 0);
+    for (const id of flag.evidence) {
+      assert.match(id, /^CALC-[0-9A-F]{12}$/);
+      assert.equal(evidence.get(id)?.provenance, "COMPUTED");
+      assert.equal(evidence.get(id)?.result, true);
+    }
+  }
+});
+
+test("risk detector leaves missing comparison data unavailable and does not flag it", () => {
+  const missing = twin({ ...BASIC_PROFILE, essentialMonthlyExpenses: undefined });
+  const result = calculateRiskFlags(missing.derived, missing.derived);
+  assert.deepEqual(result.flags, []);
+  assert.deepEqual(result.calculations, []);
+});
+
+test("evidence numbers have a stable 16-significant-digit canonical form", () => {
+  const value = 0.3333333333333333;
+  assert.equal(canonicalEvidenceNumber(value), "0.3333333333333333");
+  assert.equal(canonicalEvidenceNumber(value), canonicalEvidenceNumber(value));
+  const ratioIdentity = () => calculationEvidenceId({
+    metric: "savings_rate",
+    expression: "monthly_surplus / monthly_income",
+    baseline: value,
+    scenario: 0.3333333333333333,
+    result: true,
+    provenance: "COMPUTED",
+  });
+  assert.equal(ratioIdentity(), ratioIdentity());
+  assert.deepEqual(canonicalizeEvidenceValue({ z: 0.33, a: "0.3300" }), {
+    a: "0.33",
+    z: "0.33",
+  });
+});
+
+test("equivalent decimal spellings and signed zero have identical evidence IDs", () => {
+  const evidence = (baseline) => calculationEvidenceId({
+    metric: "debt_to_income",
+    expression: "scenario_dti > baseline_dti",
+    baseline,
+    scenario: "0.4",
+    result: true,
+    provenance: "COMPUTED",
+  });
+  assert.equal(evidence("0.33"), evidence("0.3300"));
+  assert.equal(evidence(-0), evidence(0));
+  assert.equal(evidence("-0.000"), evidence("0"));
+});
+
+test("evidence identity rejects NaN and infinity values", () => {
+  for (const value of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, "NaN", "Infinity"]) {
+    assert.throws(() => canonicalEvidenceNumber(value));
+  }
+});
+
+test("canonical TypeScript identity matches a finite Python-reference evidence value", () => {
+  assert.equal(calculationEvidenceId({
+    metric: "debt_to_income",
+    expression: "scenario_dti > baseline_dti",
+    baseline: "0.3300",
+    scenario: 0.4,
+    result: true,
+    provenance: "COMPUTED",
+  }), "CALC-CF1943AB4D79");
+});
+
+test("Python Decimal ratio outputs map to the same identity as their JS ratio display", () => {
+  const identity = (ratio) => calculationEvidenceId({
+    metric: "savings_rate",
+    expression: "monthly_surplus / monthly_income",
+    baseline: ratio,
+    scenario: "0.5",
+    result: true,
+    provenance: "COMPUTED",
+  });
+  const pythonDecimalRatio = "0.3333333333333333333333333333";
+  const javascriptRatio = 0.3333333333333333;
+  assert.equal(canonicalEvidenceNumber(pythonDecimalRatio), "0.3333333333333333");
+  assert.equal(identity(pythonDecimalRatio), identity(javascriptRatio));
+});
+
+test("risk severity thresholds use canonical decimals at exact percentage boundaries", () => {
+  const baseline = twin({ ...BASIC_PROFILE, monthlyIncome: "10000", monthlyExpenses: "0", monthlyDebtPayments: "1000" });
+  const scenario = twin({ ...BASIC_PROFILE, monthlyIncome: "10000", monthlyExpenses: "0", monthlyDebtPayments: "1500" });
+  const result = calculateRiskFlags(baseline.derived, scenario.derived);
+  assert.deepEqual(result.flags.map(({ type, severity }) => [type, severity]), [
+    ["HIGHER_DEBT_BURDEN", "high"],
+  ]);
+});
+
+test("undefined and null have distinct deterministic evidence representations", () => {
+  assert.deepEqual(canonicalizeEvidenceValue(undefined), { $type: "undefined" });
+  assert.equal(canonicalizeEvidenceValue(null), null);
+  const identity = (baseline) => calculationEvidenceId({
+    metric: "optional_metric",
+    expression: "is_available",
+    baseline,
+    scenario: null,
+    result: false,
+    provenance: "COMPUTED",
+  });
+  assert.notEqual(identity(undefined), identity(null));
+});
+
 test("all monetary inputs reject negative, non-finite and malformed values", () => {
   for (const value of [-1, "-1", "NaN", "Infinity", "1.001", "1e4"]) {
     assert.throws(() => parseFinancialTwinRequest({
@@ -174,6 +317,10 @@ test("all monetary inputs reject negative, non-finite and malformed values", () 
       monthlyInvestmentContribution: "-1",
     },
   }));
+  assert.throws(() => calculateDebtBurden("-1", "30000"));
+  assert.throws(() => calculateEmergencyCoverage("-1", "20000"));
+  assert.throws(() => projectGoal("-1", "100", 1));
+  assert.throws(() => projectGoal("100", "-1", 1));
 });
 
 test("invalid goal horizons and non-finite values are rejected", () => {

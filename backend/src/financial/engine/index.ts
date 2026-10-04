@@ -19,8 +19,14 @@ export {
   projectGoal,
 } from "./goalProgress.js";
 export {
+  calculateRiskFlags,
   calculateProfileRiskFlags,
   calculateScenarioRiskFlags,
   liquidityImpact,
 } from "./riskFlags.js";
+export {
+  calculationEvidenceId,
+  canonicalEvidenceNumber,
+  canonicalizeEvidenceValue,
+} from "./evidenceIdentity.js";
 

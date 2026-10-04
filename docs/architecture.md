@@ -26,8 +26,8 @@ NODE + EXPRESS BACKEND
 
 - **Frontend:** Next.js and TypeScript UI, communicating with the Node API. It does not call Gemini or the AI service for normal user operations and is not the source of financial calculations.
 - **Node backend:** The authoritative application backend and Express/TypeScript boundary. It owns application routing, future authentication/authorization, users and profiles, Financial Twin raw data, goals, scenarios, PostgreSQL access, market-data integration, calls to the AI service, and application-level orchestration and verification. A Prisma schema/migration and shared client access layer are implemented; data CRUD is not.
-- **PostgreSQL:** Node + Prisma is the authoritative application persistence path. `DATABASE_URL` configures access. The first migration is prepared but has not been applied because no connection URL/credentials are configured in this environment.
-- **Financial Engine:** The deterministic TypeScript implementation in the Node backend is the authoritative application calculation source as its port progresses. Its current pure calculations cover the Financial Twin and core goal metrics. The Python financial, goal, and risk engines are **LEGACY/REFERENCE** parity oracles; Python is not an active production financial backend and these engines are not part of the AI service.
+- **PostgreSQL:** Node + Prisma is the authoritative application persistence path. `DATABASE_URL` configures access. The initial migration `20261004120000_init_nexus_schema` has been applied and verified; database health checks use a real connection. No seed data is created by the application.
+- **Financial Engine:** The deterministic TypeScript implementation in the Node backend is the authoritative production calculation source. It recalculates derived metrics from validated raw financial inputs, uses decimal-string/BigInt arithmetic for money, and exposes explicit, deterministic risk flags with computed provenance. Python financial, goal, and risk engines are **LEGACY/REFERENCE** behavioral and parity oracles; Python is not an active production financial backend and these engines are not part of the AI service.
 - **Scenario Engine:** Belongs in the Node backend and will consume the deterministic engines. It is **NOT YET IMPLEMENTED**.
 - **FastAPI AI service:** Owns Gemini interaction, document ingestion, chunking, embeddings, retrieval, RAG, and AI-specific structured-output validation. It is the intelligence service, not a second production Financial Twin backend. It remains **SCAFFOLDED** with a health endpoint only.
 - **Verification:** Final business/application verification belongs to the Node backend. AI structured-output checks belong to the AI service. Current deterministic Python verification/evidence code remains **LEGACY/REFERENCE**.
@@ -38,7 +38,7 @@ NODE + EXPRESS BACKEND
 ### IMPLEMENTED
 
 - Node/Express/TypeScript backend bootstrap and `GET /health`.
-- Validated TypeScript Financial Twin contracts, deterministic metrics/goal calculations, validation, structured errors, provenance, and Python-parity fixtures/tests.
+- Validated TypeScript Financial Twin contracts, deterministic metric and goal calculations, comparison-based risk detection, stable risk evidence IDs, validation, structured errors, provenance, and Python-reference parity fixtures/tests.
 - Temporary, request-based and in-memory `POST /api/financial-twin/recalculate`; it does not persist state.
 - Prisma 7.10.0 schema for the NEXUS application data model, initial PostgreSQL migration, shared client integration, and dependency-aware `GET /health/db`.
 - FastAPI scaffold and `GET /health` only.
@@ -61,6 +61,6 @@ NODE + EXPRESS BACKEND
 
 Financial Twin recalculation remains request-based and non-persistent. The Python SQLAlchemy/Alembic layer is a legacy parity/reference artifact only; it is not the production persistence owner.
 
-The deterministic financial engine is being ported gradually from Python to TypeScript. Fixtures capture reference outputs; the Python implementation remains unchanged for parity checks during migration.
+The deterministic engine port covers the reference's supported financial metrics, no-return goal calculations, comparison deltas, and comparison-based risk-flag rules. The Python implementation remains unchanged as the behavioral oracle. Evidence IDs canonicalize finite numeric values before hashing: decimal representations are rounded to 16 significant digits using nearest/ties-to-even, insignificant zeros are removed, negative zero becomes zero, object keys are sorted, and null/undefined remain distinct. This mapping affects evidence identity only; financial calculations and API display values are unchanged. Python-parity flags retain their reference conditions, order, and severity. Profile-level MISSING_DATA and projected-goal-shortfall flags are additional deterministic NEXUS rules and are not part of the Python comparison detector.
 
 This is only the architecture reset; it does not make NEXUS architecturally complete.

@@ -37,6 +37,7 @@ export function calculateDebtBurden(
   monthlyDebtPayments: Money,
   monthlyIncome: Money,
 ): number | null {
+  decimalToMinorUnits(monthlyDebtPayments, "monthlyDebtPayments");
   return ratio(monthlyDebtPayments, monthlyIncome);
 }
 
@@ -44,7 +45,10 @@ export function calculateEmergencyCoverage(
   liquidSavings: Money,
   essentialMonthlyExpenses: Money | undefined,
 ): number | null {
-  if (essentialMonthlyExpenses === undefined || essentialMonthlyExpenses === "0") return null;
+  if (essentialMonthlyExpenses === undefined) return null;
+  decimalToMinorUnits(liquidSavings, "liquidSavings");
+  decimalToMinorUnits(essentialMonthlyExpenses, "essentialMonthlyExpenses");
+  if (decimalToMinorUnits(essentialMonthlyExpenses, "essentialMonthlyExpenses") === 0n) return null;
   return ratio(liquidSavings, essentialMonthlyExpenses);
 }
 
@@ -154,7 +158,10 @@ export function calculateFinancialMetrics(
   };
 }
 
-export function calculateLiquidityImpact(baselineSavings: Money, scenarioSavings: Money): ScenarioDelta {
+export function calculateLiquidityImpact(
+  baselineSavings: Money | null,
+  scenarioSavings: Money | null,
+): ScenarioDelta {
   return calculateScenarioDelta(baselineSavings, scenarioSavings);
 }
 

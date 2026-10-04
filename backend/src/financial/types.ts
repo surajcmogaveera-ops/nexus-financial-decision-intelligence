@@ -72,7 +72,24 @@ export interface RiskFlag {
   type: RiskType;
   severity: RiskSeverity;
   trigger: string;
+  /** Stable IDs of the computed comparisons supporting this flag. */
+  evidence: string[];
   details: Record<string, string | number | boolean | null>;
+}
+
+export interface RiskCalculationEvidence {
+  metric: string;
+  expression: string;
+  baselineValue: number | Money | boolean | null;
+  scenarioValue: number | Money | boolean | null;
+  result: boolean;
+  provenance: "COMPUTED";
+  evidenceId: string;
+}
+
+export interface RiskDetectionResult {
+  flags: RiskFlag[];
+  calculations: RiskCalculationEvidence[];
 }
 
 export type RawField = keyof Omit<FinancialProfile, "goals"> | "goals";

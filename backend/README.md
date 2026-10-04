@@ -1,6 +1,6 @@
 # NEXUS Node backend
 
-The Node.js, Express, and TypeScript application is the authoritative NEXUS application backend and persistence owner. The backend uses Prisma 7.10.0 for PostgreSQL. The schema and initial migration are ready; the migration must be applied to a configured PostgreSQL database before database health reports success. Financial Twin recalculation remains request-based and in-memory and does not persist state.
+The Node.js, Express, and TypeScript application is the authoritative NEXUS application backend and persistence owner. The backend uses Prisma 7.10.0 for PostgreSQL. The initial migration `20261004120000_init_nexus_schema` is applied. Financial Twin recalculation remains request-based and in-memory and does not persist state.
 
 ```powershell
 pnpm install --frozen-lockfile
@@ -10,9 +10,11 @@ pnpm start
 
 The service listens on `PORT` (default `3000`).
 
-The prior Python financial/API application is preserved under `../legacy/python-reference/`; it is not the target Node backend.
+The prior Python financial/API application is preserved under `../legacy/python-reference/` as a behavioral reference and parity oracle; it is not the target Node backend or a production dependency.
 
-Run the Node tests with `pnpm test`. `POST /api/financial-twin/recalculate` accepts a validated request-body Financial Profile, recalculates all derived metrics in memory, and returns provenance, risk flags, and calculation metadata. Goal results distinguish current funding gap, projected goal amount, and projected goal shortfall. Authentication, scenario execution, Gemini, RAG, embeddings, market APIs, and frontend product UI are not implemented. The FastAPI service is scaffolded for future AI work and currently only exposes health.
+Run the Node tests with `pnpm test`. `POST /api/financial-twin/recalculate` accepts a validated request-body Financial Profile, recalculates all derived metrics in memory from raw inputs, and returns provenance, risk flags, and calculation metadata. Derived metrics are never authoritative raw user state. The pure TypeScript engine is authoritative in production; current deterministic capabilities include the Financial Twin metrics, no-return goal calculations, scenario comparisons, and explicit risk detection. Goal results distinguish current funding gap, projected goal amount, and projected goal shortfall. Full scenario orchestration, authentication, Gemini, RAG, embeddings, market APIs, and frontend product UI are not implemented. The FastAPI service is scaffolded for future AI work and currently only exposes health.
+
+The unchanged Python engine under `../legacy/python-reference/` is the behavior and parity oracle. Risk evidence IDs are generated from canonical values: numeric values use 16 significant digits with ties-to-even rounding, trailing zeros and negative zero are normalized, and object keys are sorted. This mapping affects evidence identity only; display values and financial formulas are unchanged. Python-parity comparison flags remain distinct from NEXUS profile-level missing-data and projected-shortfall extensions.
 
 ## PostgreSQL setup
 

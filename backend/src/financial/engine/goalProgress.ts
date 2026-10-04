@@ -29,6 +29,8 @@ export function projectGoal(
   monthlyContribution: Money,
   months: number,
 ): Money {
+  decimalToMinorUnits(currentAllocated, "currentAllocatedAmount");
+  decimalToMinorUnits(monthlyContribution, "monthlyContribution");
   if (!Number.isSafeInteger(months) || months < 0) {
     throw new TypeError("months must be a non-negative safe integer");
   }

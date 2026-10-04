@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 
 import { createApp } from "../dist/app.js";
+import { calculateFinancialTwin } from "../dist/financial/service.js";
+import { parseFinancialTwinRequest } from "../dist/financial/schemas.js";
 import { EXPECTED, INVEST_5000_SCENARIO } from "./fixtures/financial-parity-fixtures.mjs";
+import parityGoldens from "./fixtures/parity/financial-engine-python-goldens.json" with { type: "json" };
 
 let server;
 let baseUrl;
@@ -105,6 +108,21 @@ test("basic response matches parity outputs", async () => {
   assert.equal(derived.monthlySurplus, EXPECTED.basic.monthlySurplus);
   assert.equal(derived.debtToIncome, EXPECTED.basic.debtToIncome);
   assert.equal(derived.emergencyCoverageMonths, EXPECTED.basic.emergencyCoverageMonths);
+});
+
+test("Financial Twin API response matches the direct TypeScript engine for a Python parity fixture", async () => {
+  const normalCase = parityGoldens.cases.find(({ id }) => id === "normal-state");
+  const requestBody = { profile: normalCase.profile, asOfDate: parityGoldens.contract.asOfDate };
+  const direct = calculateFinancialTwin(parseFinancialTwinRequest(requestBody));
+  const response = await fetch(`${baseUrl}/api/financial-twin/recalculate`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(requestBody),
+  });
+  assert.equal(response.status, 200);
+  const apiResult = await response.json();
+  assert.deepEqual(apiResult.derived, direct.derived);
+  assert.deepEqual(apiResult.riskFlags, direct.riskFlags);
 });
 
 test("invalid inputs return a structured validation error without a stack trace", async () => {

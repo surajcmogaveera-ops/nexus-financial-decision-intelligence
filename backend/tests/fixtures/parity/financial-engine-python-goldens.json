@@ -1,0 +1,134 @@
+{
+  "contract": {
+    "source": "legacy/python-reference/app/engine/financial_metrics.py, goal_engine.py, risk_flags.py",
+    "generation": "Expected values were obtained by invoking those Python reference functions and then checked in as offline golden data; parity tests do not require Python at runtime.",
+    "asOfDate": "2026-10-04",
+    "metricAliases": { "goalFundingGap": "currentFundingGap" },
+    "metricsCompared": ["monthlySurplus", "savingsRate", "debtToIncome", "emergencyCoverageMonths", "currentFundingGap", "requiredMonthlyContribution", "projectedAmount", "projectedGoalShortfall"],
+    "riskCompared": ["conditions", "ordering", "severity", "evidenceIdsAfterCanonicalRepresentationMapping"],
+    "nullAndBooleanValuesComparedExactly": true,
+    "ratioPrecision": "canonical 16 significant digits for cross-language comparison only",
+    "moneyComparison": "exact decimal value after removing insignificant trailing zeros",
+    "pythonIsRuntimeDependency": false
+  },
+  "cases": [
+    {
+      "id": "normal-state",
+      "classification": "PYTHON_PARITY",
+      "expectedResult": "PASS",
+      "profile": { "monthlyIncome": "30000", "monthlyExpenses": "20000", "monthlyDebtPayments": "0", "liquidSavings": "40000", "essentialMonthlyExpenses": "20000", "goals": [] },
+      "python": {
+        "baseline": { "monthlySurplus": "10000", "savingsRate": "0.3333333333333333333333333333", "debtToIncome": "0", "emergencyCoverageMonths": "2", "currentFundingGap": "0" },
+        "scenario": { "monthlySurplus": "10000", "savingsRate": "0.3333333333333333333333333333", "debtToIncome": "0", "emergencyCoverageMonths": "2", "currentFundingGap": "0" },
+        "risk": { "flags": [], "calculations": [] }
+      }
+    },
+    {
+      "id": "zero-income",
+      "classification": "PYTHON_PARITY",
+      "expectedResult": "PASS",
+      "profile": { "monthlyIncome": "0", "monthlyExpenses": "10000", "monthlyDebtPayments": "0", "liquidSavings": "40000", "essentialMonthlyExpenses": "20000", "goals": [] },
+      "python": {
+        "baseline": { "monthlySurplus": "10000", "savingsRate": "0.3333333333333333333333333333", "debtToIncome": "0", "emergencyCoverageMonths": "2", "currentFundingGap": "0" },
+        "scenario": { "monthlySurplus": "-10000", "savingsRate": null, "debtToIncome": null, "emergencyCoverageMonths": "2", "currentFundingGap": "0" },
+        "risk": {
+          "flags": [{ "type": "NEGATIVE_SURPLUS", "severity": "high", "trigger": "scenario_monthly_surplus < 0", "evidence": ["CALC-87004EB86032"] }],
+          "calculations": [{ "metric": "monthly_surplus", "expression": "scenario_monthly_surplus < 0", "baseline": "10000", "scenario": "-10000", "result": true, "provenance": "COMPUTED", "evidenceId": "CALC-87004EB86032" }]
+        }
+      }
+    },
+    {
+      "id": "zero-expenses",
+      "classification": "PYTHON_PARITY",
+      "expectedResult": "PASS_WITH_NEXUS_EXTENSION",
+      "profile": { "monthlyIncome": "30000", "monthlyExpenses": "0", "monthlyDebtPayments": "0", "liquidSavings": "40000", "essentialMonthlyExpenses": "0", "goals": [] },
+      "python": {
+        "baseline": { "monthlySurplus": "10000", "savingsRate": "0.3333333333333333333333333333", "debtToIncome": "0", "emergencyCoverageMonths": "2", "currentFundingGap": "0" },
+        "scenario": { "monthlySurplus": "30000", "savingsRate": "1", "debtToIncome": "0", "emergencyCoverageMonths": null, "currentFundingGap": "0" },
+        "risk": { "flags": [], "calculations": [] }
+      },
+      "extensions": ["NEXUS profile MISSING_DATA flag for unavailable emergency coverage"]
+    },
+    {
+      "id": "negative-surplus",
+      "classification": "PYTHON_PARITY",
+      "expectedResult": "PASS",
+      "profile": { "monthlyIncome": "30000", "monthlyExpenses": "35000", "monthlyDebtPayments": "0", "liquidSavings": "40000", "essentialMonthlyExpenses": "20000", "goals": [] },
+      "python": {
+        "baseline": { "monthlySurplus": "10000", "savingsRate": "0.3333333333333333333333333333", "debtToIncome": "0", "emergencyCoverageMonths": "2", "currentFundingGap": "0" },
+        "scenario": { "monthlySurplus": "-5000", "savingsRate": "-0.1666666666666666666666666667", "debtToIncome": "0", "emergencyCoverageMonths": "2", "currentFundingGap": "0" },
+        "risk": {
+          "flags": [{ "type": "NEGATIVE_SURPLUS", "severity": "high", "trigger": "scenario_monthly_surplus < 0", "evidence": ["CALC-032E03B2EEE2"] }],
+          "calculations": [{ "metric": "monthly_surplus", "expression": "scenario_monthly_surplus < 0", "baseline": "10000", "scenario": "-5000", "result": true, "provenance": "COMPUTED", "evidenceId": "CALC-032E03B2EEE2" }]
+        }
+      }
+    },
+    {
+      "id": "goal-shortfall",
+      "classification": "PYTHON_PARITY",
+      "expectedResult": "PASS",
+      "profile": { "monthlyIncome": "30000", "monthlyExpenses": "20000", "monthlyDebtPayments": "0", "liquidSavings": "40000", "essentialMonthlyExpenses": "20000", "goals": [{ "name": "Savings goal", "targetAmount": "200000", "currentAllocatedAmount": "40000", "monthlyContribution": "5000", "targetDate": "2027-10-04", "priority": 1, "returnAssumption": 0 }] },
+      "python": {
+        "baseline": { "monthlySurplus": "10000", "savingsRate": "0.3333333333333333333333333333", "debtToIncome": "0", "emergencyCoverageMonths": "2", "currentFundingGap": "0" },
+        "scenario": { "monthlySurplus": "10000", "savingsRate": "0.3333333333333333333333333333", "debtToIncome": "0", "emergencyCoverageMonths": "2", "currentFundingGap": "160000" },
+        "goal": { "currentFundingGap": "160000", "requiredMonthlyContribution": "13333.33333333333333333333333", "projectedAmount": "100000", "projectedGoalShortfall": "100000", "feasible": false, "status": "SHORTFALL", "monthsRemaining": 12 },
+        "risk": {
+          "flags": [{ "type": "GOAL_SHORTFALL", "severity": "medium", "trigger": "scenario_goal_gap > baseline_goal_gap", "evidence": ["CALC-1E5115C8E768"] }],
+          "calculations": [{ "metric": "goal_funding_gap", "expression": "scenario_goal_gap > baseline_goal_gap", "baseline": "0", "scenario": "160000", "result": true, "provenance": "COMPUTED", "evidenceId": "CALC-1E5115C8E768" }]
+        }
+      }
+    },
+    {
+      "id": "debt",
+      "classification": "PYTHON_PARITY",
+      "expectedResult": "PASS",
+      "profile": { "monthlyIncome": "30000", "monthlyExpenses": "20000", "monthlyDebtPayments": "5000", "liquidSavings": "40000", "essentialMonthlyExpenses": "20000", "goals": [] },
+      "python": {
+        "baseline": { "monthlySurplus": "10000", "savingsRate": "0.3333333333333333333333333333", "debtToIncome": "0", "emergencyCoverageMonths": "2", "currentFundingGap": "0" },
+        "scenario": { "monthlySurplus": "5000", "savingsRate": "0.1666666666666666666666666667", "debtToIncome": "0.1666666666666666666666666667", "emergencyCoverageMonths": "2", "currentFundingGap": "0" },
+        "risk": {
+          "flags": [{ "type": "HIGHER_DEBT_BURDEN", "severity": "high", "trigger": "scenario_dti > baseline_dti", "evidence": ["CALC-EEFDDB308F06"] }],
+          "calculations": [{ "metric": "debt_to_income", "expression": "scenario_dti > baseline_dti", "baseline": "0", "scenario": "0.1666666666666666666666666667", "result": true, "provenance": "COMPUTED", "evidenceId": "CALC-EEFDDB308F06" }]
+        }
+      }
+    },
+    {
+      "id": "emergency-expense",
+      "classification": "NEXUS_SCENARIO_MAPPING",
+      "expectedResult": "PASS_WITH_SCENARIO_MAPPING",
+      "profile": { "monthlyIncome": "30000", "monthlyExpenses": "20000", "monthlyDebtPayments": "0", "liquidSavings": "30000", "essentialMonthlyExpenses": "20000", "goals": [] },
+      "python": {
+        "baseline": { "monthlySurplus": "10000", "savingsRate": "0.3333333333333333333333333333", "debtToIncome": "0", "emergencyCoverageMonths": "2", "currentFundingGap": "0" },
+        "scenario": { "monthlySurplus": "10000", "savingsRate": "0.3333333333333333333333333333", "debtToIncome": "0", "emergencyCoverageMonths": "1.5", "currentFundingGap": "0" },
+        "deltas": { "liquidityImpact": { "delta": "-10000", "percentageDelta": "-25" }, "emergencyCoverageMonths": { "delta": "-0.5", "percentageDelta": "-25" } },
+        "risk": {
+          "flags": [
+            { "type": "LIQUIDITY_REDUCTION", "severity": "medium", "trigger": "scenario_liquid_savings < baseline_liquid_savings", "evidence": ["CALC-49FD431D1C08"] },
+            { "type": "EMERGENCY_COVERAGE_REDUCTION", "severity": "medium", "trigger": "scenario_emergency_coverage_months < baseline_emergency_coverage_months", "evidence": ["CALC-5707C464A1A4"] }
+          ],
+          "calculations": [
+            { "metric": "liquid_savings", "expression": "scenario_liquid_savings < baseline_liquid_savings", "baseline": "40000", "scenario": "30000", "result": true, "provenance": "COMPUTED", "evidenceId": "CALC-49FD431D1C08" },
+            { "metric": "emergency_coverage_months", "expression": "scenario_emergency_coverage_months < baseline_emergency_coverage_months", "baseline": "2", "scenario": "1.5", "result": true, "provenance": "COMPUTED", "evidenceId": "CALC-5707C464A1A4" }
+          ]
+        }
+      },
+      "extensions": ["The Python reference has no emergency-expense scenario input; parity maps it to the explicit 10,000 liquid-savings reduction."]
+    },
+    {
+      "id": "investment-contribution",
+      "classification": "NEXUS_SCENARIO_EXTENSION",
+      "expectedResult": "PASS_WITH_NEXUS_EXTENSION",
+      "baselineProfile": { "monthlyIncome": "30000", "monthlyExpenses": "20000", "monthlyDebtPayments": "0", "liquidSavings": "40000", "essentialMonthlyExpenses": "20000", "goals": [{ "name": "Savings goal", "targetAmount": "200000", "currentAllocatedAmount": "40000", "monthsRemaining": 12, "returnAssumption": 0, "priority": 1 }] },
+      "scenarioProfile": { "monthlyIncome": "30000", "monthlyExpenses": "20000", "monthlyDebtPayments": "0", "liquidSavings": "40000", "essentialMonthlyExpenses": "20000", "monthlyInvestmentContribution": "5000", "goals": [{ "name": "Savings goal", "targetAmount": "200000", "currentAllocatedAmount": "40000", "monthsRemaining": 12, "returnAssumption": 0, "priority": 1 }] },
+      "python": {
+        "baseline": { "monthlySurplus": "10000", "savingsRate": "0.3333333333333333333333333333", "debtToIncome": "0", "emergencyCoverageMonths": "2", "currentFundingGap": "160000" },
+        "scenario": { "monthlySurplus": "10000", "savingsRate": "0.3333333333333333333333333333", "debtToIncome": "0", "emergencyCoverageMonths": "2", "currentFundingGap": "160000" },
+        "baselineGoal": { "currentFundingGap": "160000", "requiredMonthlyContribution": "13333.33333333333333333333333", "projectedAmount": "160000", "projectedGoalShortfall": "40000", "feasible": false, "status": "SHORTFALL", "monthsRemaining": 12 },
+        "scenarioGoal": { "currentFundingGap": "160000", "requiredMonthlyContribution": "13333.33333333333333333333333", "projectedAmount": "100000", "projectedGoalShortfall": "100000", "feasible": false, "status": "SHORTFALL", "monthsRemaining": 12 },
+        "deltas": { "projectedAmount": { "delta": "-60000", "percentageDelta": "-37.5" }, "projectedGoalShortfall": { "delta": "60000", "percentageDelta": "150" }, "additionalScenarioShortfall": "60000" },
+        "risk": { "flags": [], "calculations": [] }
+      },
+      "extensions": ["Python has no separate monthlyInvestmentContribution field; the two goal contribution assumptions are passed explicitly to its Goal Engine.", "Profile projected-shortfall flags and additionalScenarioShortfall are NEXUS extensions."]
+    }
+  ]
+}

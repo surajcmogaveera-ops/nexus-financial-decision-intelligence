@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -30,6 +31,53 @@ function twin(profile) {
     profile,
     asOfDate: "2026-10-04",
   }));
+}
+
+const PYTHON_PARITY_GOLDENS = JSON.parse(readFileSync(
+  new URL("./fixtures/parity/financial-engine-python-goldens.json", import.meta.url),
+  "utf8",
+));
+
+function exactDecimal(value) {
+  if (value === null) return null;
+  const [whole, fraction = ""] = String(value).split(".");
+  const normalizedFraction = fraction.replace(/0+$/, "");
+  return normalizedFraction ? `${whole}.${normalizedFraction}` : whole;
+}
+
+function normalizedMetrics(metrics) {
+  return {
+    monthlySurplus: exactDecimal(metrics.monthlySurplus),
+    savingsRate: metrics.savingsRate === null ? null : canonicalEvidenceNumber(metrics.savingsRate),
+    debtToIncome: metrics.debtToIncome === null ? null : canonicalEvidenceNumber(metrics.debtToIncome),
+    emergencyCoverageMonths: metrics.emergencyCoverageMonths === null
+      ? null
+      : canonicalEvidenceNumber(metrics.emergencyCoverageMonths),
+    currentFundingGap: exactDecimal(metrics.currentFundingGap),
+  };
+}
+
+function normalizedPythonMetrics(metrics) {
+  return {
+    monthlySurplus: exactDecimal(metrics.monthlySurplus),
+    savingsRate: metrics.savingsRate === null ? null : canonicalEvidenceNumber(metrics.savingsRate),
+    debtToIncome: metrics.debtToIncome === null ? null : canonicalEvidenceNumber(metrics.debtToIncome),
+    emergencyCoverageMonths: metrics.emergencyCoverageMonths === null
+      ? null
+      : canonicalEvidenceNumber(metrics.emergencyCoverageMonths),
+    currentFundingGap: exactDecimal(metrics.currentFundingGap),
+  };
+}
+
+function normalizedPythonEvidence(item) {
+  return calculationEvidenceId({
+    metric: item.metric,
+    expression: item.expression,
+    baseline: item.baseline,
+    scenario: item.scenario,
+    result: item.result,
+    provenance: item.provenance,
+  });
 }
 
 test("basic Financial Twin metrics match the Python reference fixture", () => {
@@ -297,6 +345,135 @@ test("undefined and null have distinct deterministic evidence representations", 
     provenance: "COMPUTED",
   });
   assert.notEqual(identity(undefined), identity(null));
+});
+
+test("cross-language parity goldens compare Python outputs with direct TypeScript results", () => {
+  assert.equal(PYTHON_PARITY_GOLDENS.cases.length, 8);
+  for (const parityCase of PYTHON_PARITY_GOLDENS.cases) {
+    const baselineProfile = parityCase.baselineProfile ?? BASIC_PROFILE;
+    const scenarioProfile = parityCase.scenarioProfile ?? parityCase.profile;
+    const baseline = twin(baselineProfile);
+    const scenario = twin(scenarioProfile);
+
+    assert.deepEqual(
+      normalizedMetrics(baseline.derived),
+      normalizedPythonMetrics(parityCase.python.baseline),
+      `${parityCase.id}: baseline metrics`,
+    );
+    assert.deepEqual(
+      normalizedMetrics(scenario.derived),
+      normalizedPythonMetrics(parityCase.python.scenario),
+      `${parityCase.id}: scenario metrics`,
+    );
+
+    const compareGoal = (actual, expected, label) => {
+      if (expected === undefined) return;
+      assert.ok(actual, `${parityCase.id}: ${label} is present`);
+      assert.deepEqual({
+        currentFundingGap: exactDecimal(actual.currentFundingGap),
+        requiredMonthlyContribution: exactDecimal(actual.requiredMonthlyContribution),
+        projectedAmount: exactDecimal(actual.projectedAmount),
+        projectedGoalShortfall: exactDecimal(actual.projectedGoalShortfall),
+        feasible: actual.feasible,
+        status: actual.status,
+        monthsRemaining: actual.monthsRemaining,
+      }, expected, `${parityCase.id}: ${label}`);
+    };
+    compareGoal(baseline.derived.goals[0], parityCase.python.baselineGoal, "baseline goal");
+    compareGoal(scenario.derived.goals[0], parityCase.python.goal ?? parityCase.python.scenarioGoal, "scenario goal");
+
+    const baselineGoalFeasible = baseline.derived.goals.length === 0
+      ? null
+      : baseline.derived.goals.every((goal) => goal.feasible === true);
+    const scenarioGoalFeasible = scenario.derived.goals.length === 0
+      ? null
+      : scenario.derived.goals.every((goal) => goal.feasible === true);
+    const risk = calculateRiskFlags(baseline.derived, scenario.derived, {
+      baselineLiquidSavings: baseline.raw.liquidSavings,
+      scenarioLiquidSavings: scenario.raw.liquidSavings,
+      baselineGoalFeasible,
+      scenarioGoalFeasible,
+    });
+
+    const pythonEvidenceIdMap = new Map(parityCase.python.risk.calculations.map((item) => {
+      assert.match(item.evidenceId, /^CALC-[0-9A-F]{12}$/);
+      return [item.evidenceId, normalizedPythonEvidence(item)];
+    }));
+    assert.deepEqual(risk.calculations.map((item) => ({
+      metric: item.metric,
+      expression: item.expression,
+      baseline: item.baselineValue === null || typeof item.baselineValue === "boolean"
+        ? item.baselineValue
+        : canonicalEvidenceNumber(item.baselineValue),
+      scenario: item.scenarioValue === null || typeof item.scenarioValue === "boolean"
+        ? item.scenarioValue
+        : canonicalEvidenceNumber(item.scenarioValue),
+      result: item.result,
+      provenance: item.provenance,
+      evidenceId: item.evidenceId,
+    })), parityCase.python.risk.calculations.map((item) => ({
+      metric: item.metric,
+      expression: item.expression,
+      baseline: item.baseline === null || typeof item.baseline === "boolean"
+        ? item.baseline
+        : canonicalEvidenceNumber(item.baseline),
+      scenario: item.scenario === null || typeof item.scenario === "boolean"
+        ? item.scenario
+        : canonicalEvidenceNumber(item.scenario),
+      result: item.result,
+      provenance: item.provenance,
+      evidenceId: normalizedPythonEvidence(item),
+    })), `${parityCase.id}: risk calculations and evidence identity`);
+
+    assert.deepEqual(risk.flags.map(({ type, severity, trigger, evidence }) => ({
+      type, severity, trigger, evidence,
+    })), parityCase.python.risk.flags.map(({ type, severity, trigger, evidence }) => ({
+      type,
+      severity,
+      trigger,
+      evidence: evidence.map((id) => pythonEvidenceIdMap.get(id)),
+    })), `${parityCase.id}: risk flags`);
+
+    if (parityCase.id === "zero-expenses") {
+      assert.ok(scenario.riskFlags.some((flag) => flag.type === "MISSING_DATA"));
+    }
+    if (parityCase.id === "goal-shortfall") {
+      assert.equal(scenario.derived.goals[0].currentFundingGap, "160000");
+      assert.equal(scenario.derived.goals[0].projectedGoalShortfall, "100000");
+    }
+    if (parityCase.id === "emergency-expense") {
+      assert.deepEqual(calculateLiquidityImpact(
+        baseline.raw.liquidSavings,
+        scenario.raw.liquidSavings,
+      ), { delta: parityCase.python.deltas.liquidityImpact.delta, percentageDelta: -25 });
+      const coverage = calculateScenarioDelta(
+        baseline.derived.emergencyCoverageMonths,
+        scenario.derived.emergencyCoverageMonths,
+      );
+      assert.equal(canonicalEvidenceNumber(coverage.delta), canonicalEvidenceNumber(parityCase.python.deltas.emergencyCoverageMonths.delta));
+      assert.equal(canonicalEvidenceNumber(coverage.percentageDelta), "-25");
+    }
+    if (parityCase.id === "investment-contribution") {
+      assert.equal(baseline.derived.availableMonthlyCashFlow, "10000");
+      assert.equal(scenario.derived.availableMonthlyCashFlow, "5000");
+      assert.equal(calculateAdditionalScenarioShortfall(
+        baseline.derived.goals[0], scenario.derived.goals[0],
+      ), "60000");
+      const projectedDelta = calculateScenarioDelta(
+        baseline.derived.goals[0].projectedAmount,
+        scenario.derived.goals[0].projectedAmount,
+      );
+      const shortfallDelta = calculateScenarioDelta(
+        baseline.derived.goals[0].projectedGoalShortfall,
+        scenario.derived.goals[0].projectedGoalShortfall,
+      );
+      assert.equal(projectedDelta.delta, parityCase.python.deltas.projectedAmount.delta);
+      assert.equal(canonicalEvidenceNumber(projectedDelta.percentageDelta), "-37.5");
+      assert.equal(shortfallDelta.delta, parityCase.python.deltas.projectedGoalShortfall.delta);
+      assert.equal(canonicalEvidenceNumber(shortfallDelta.percentageDelta), "150");
+      assert.ok(scenario.riskFlags.some((flag) => flag.type === "GOAL_SHORTFALL"));
+    }
+  }
 });
 
 test("all monetary inputs reject negative, non-finite and malformed values", () => {

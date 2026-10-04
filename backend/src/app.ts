@@ -2,6 +2,9 @@ import express, { type ErrorRequestHandler } from "express";
 import { InputValidationError } from "./financial/schemas.js";
 import { financialTwinRouter } from "./financial/routes.js";
 import { checkDatabaseConnection } from "./db/prisma.js";
+import { scenarioRouter } from "./scenarios/routes.js";
+import { simulationRouter } from "./simulations/routes.js";
+import { SimulationServiceError } from "./simulations/schemas.js";
 
 export interface AppDependencies {
   databaseHealthCheck?: () => Promise<void>;
@@ -30,6 +33,8 @@ export function createApp(dependencies: AppDependencies = {}): express.Express {
     }
   });
   app.use("/api/financial-twin", financialTwinRouter);
+  app.use("/api/scenarios", scenarioRouter);
+  app.use("/api/simulations", simulationRouter);
 
   app.use("/api", (request, response) => {
     response.status(404).json({
@@ -47,6 +52,12 @@ export function createApp(dependencies: AppDependencies = {}): express.Express {
   });
 
   const errorHandler: ErrorRequestHandler = (error: unknown, _request, response, _next) => {
+    if (error instanceof SimulationServiceError) {
+      response.status(error.status).json({
+        error: { code: error.code, message: error.message, details: error.details },
+      });
+      return;
+    }
     if (error instanceof InputValidationError) {
       response.status(400).json({
         error: {

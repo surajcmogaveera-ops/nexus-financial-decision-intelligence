@@ -1,0 +1,317 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id               String            @id @default(uuid()) @db.Uuid
+  email            String            @unique @db.VarChar(320)
+  displayName      String?           @map("display_name") @db.VarChar(200)
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  financialProfile FinancialProfile?
+  aiAnalyses       AIAnalysis[]
+  auditLogs        AuditLog[]
+
+  @@map("users")
+}
+
+model FinancialProfile {
+  id                            String              @id @default(uuid()) @db.Uuid
+  userId                        String              @unique @map("user_id") @db.Uuid
+  displayName                   String?             @map("display_name") @db.VarChar(200)
+  currency                      String              @default("INR") @db.Char(3)
+  monthlyIncome                 Decimal?            @map("monthly_income") @db.Decimal(18, 2)
+  monthlyExpenses               Decimal?            @map("monthly_expenses") @db.Decimal(18, 2)
+  monthlyDebtPayments           Decimal?            @map("monthly_debt_payments") @db.Decimal(18, 2)
+  liquidSavings                 Decimal?            @map("liquid_savings") @db.Decimal(18, 2)
+  investments                   Decimal?            @db.Decimal(18, 2)
+  monthlyInvestmentContribution Decimal?            @map("monthly_investment_contribution") @db.Decimal(18, 2)
+  essentialMonthlyExpenses      Decimal?            @map("essential_monthly_expenses") @db.Decimal(18, 2)
+  profileMetadata               Json                @default("{}") @map("profile_metadata") @db.JsonB
+  createdAt                     DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                     DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user                          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  incomeSources                 IncomeSource[]
+  expenseCategories             ExpenseCategory[]
+  debts                         Debt[]
+  assets                        Asset[]
+  investmentsList               Investment[]
+  goals                         Goal[]
+  scenarios                     Scenario[]
+  financialSnapshots            FinancialSnapshot[]
+  aiAnalyses                    AIAnalysis[]
+
+  @@map("financial_profiles")
+}
+
+model IncomeSource {
+  id                 String           @id @default(uuid()) @db.Uuid
+  financialProfileId String           @map("financial_profile_id") @db.Uuid
+  name               String           @db.VarChar(200)
+  amount             Decimal          @db.Decimal(18, 2)
+  frequency          String           @db.VarChar(20)
+  isActive           Boolean          @default(true) @map("is_active")
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  financialProfile   FinancialProfile @relation(fields: [financialProfileId], references: [id], onDelete: Cascade)
+
+  @@index([financialProfileId])
+  @@map("income_sources")
+}
+
+model ExpenseCategory {
+  id                 String           @id @default(uuid()) @db.Uuid
+  financialProfileId String           @map("financial_profile_id") @db.Uuid
+  category           String           @db.VarChar(100)
+  name               String           @db.VarChar(200)
+  amount             Decimal          @db.Decimal(18, 2)
+  frequency          String           @default("monthly") @db.VarChar(20)
+  isEssential        Boolean          @default(false) @map("is_essential")
+  isActive           Boolean          @default(true) @map("is_active")
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  financialProfile   FinancialProfile @relation(fields: [financialProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([financialProfileId, category, name])
+  @@index([financialProfileId])
+  @@map("expense_categories")
+}
+
+model Debt {
+  id                 String           @id @default(uuid()) @db.Uuid
+  financialProfileId String           @map("financial_profile_id") @db.Uuid
+  name               String           @db.VarChar(200)
+  outstandingAmount  Decimal          @map("outstanding_amount") @db.Decimal(18, 2)
+  monthlyPayment     Decimal          @map("monthly_payment") @db.Decimal(18, 2)
+  paymentFrequency   String           @default("monthly") @map("payment_frequency") @db.VarChar(20)
+  interestRate       Decimal?         @map("interest_rate") @db.Decimal(9, 6)
+  isActive           Boolean          @default(true) @map("is_active")
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  financialProfile   FinancialProfile @relation(fields: [financialProfileId], references: [id], onDelete: Cascade)
+
+  @@index([financialProfileId])
+  @@map("debts")
+}
+
+model Asset {
+  id                 String           @id @default(uuid()) @db.Uuid
+  financialProfileId String           @map("financial_profile_id") @db.Uuid
+  name               String           @db.VarChar(200)
+  assetType          String           @map("asset_type") @db.VarChar(100)
+  currentValue       Decimal          @map("current_value") @db.Decimal(18, 2)
+  isLiquid           Boolean          @default(false) @map("is_liquid")
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  financialProfile   FinancialProfile @relation(fields: [financialProfileId], references: [id], onDelete: Cascade)
+
+  @@index([financialProfileId])
+  @@map("assets")
+}
+
+model Investment {
+  id                  String           @id @default(uuid()) @db.Uuid
+  financialProfileId  String           @map("financial_profile_id") @db.Uuid
+  name                String           @db.VarChar(200)
+  investmentType      String           @map("investment_type") @db.VarChar(100)
+  currentValue        Decimal          @map("current_value") @db.Decimal(18, 2)
+  monthlyContribution Decimal?         @map("monthly_contribution") @db.Decimal(18, 2)
+  isLiquid            Boolean          @default(false) @map("is_liquid")
+  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  financialProfile    FinancialProfile @relation(fields: [financialProfileId], references: [id], onDelete: Cascade)
+
+  @@index([financialProfileId])
+  @@map("investments")
+}
+
+model Goal {
+  id                     String           @id @default(uuid()) @db.Uuid
+  financialProfileId     String           @map("financial_profile_id") @db.Uuid
+  name                   String           @db.VarChar(200)
+  targetAmount           Decimal          @map("target_amount") @db.Decimal(18, 2)
+  currentAllocatedAmount Decimal          @default(0) @map("current_allocated_amount") @db.Decimal(18, 2)
+  targetDate             DateTime?        @map("target_date") @db.Date
+  monthsRemaining        Int?             @map("months_remaining")
+  monthlyContribution    Decimal          @default(0) @map("monthly_contribution") @db.Decimal(18, 2)
+  fundingSource          String?          @map("funding_source") @db.VarChar(200)
+  returnAssumption       Decimal?         @map("return_assumption") @db.Decimal(12, 8)
+  priority               Int              @default(1)
+  status                 String           @default("active") @db.VarChar(20)
+  createdAt              DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  financialProfile       FinancialProfile @relation(fields: [financialProfileId], references: [id], onDelete: Cascade)
+  scenarios              Scenario[]
+
+  @@index([financialProfileId])
+  @@map("goals")
+}
+
+model Scenario {
+  id                  String               @id @default(uuid()) @db.Uuid
+  financialProfileId  String               @map("financial_profile_id") @db.Uuid
+  goalId              String?              @map("goal_id") @db.Uuid
+  name                String               @db.VarChar(200)
+  description         String?              @db.Text
+  scenarioType        String               @map("scenario_type") @db.VarChar(100)
+  inputChanges        Json                 @default("{}") @map("input_changes") @db.JsonB
+  createdAt           DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+  financialProfile    FinancialProfile     @relation(fields: [financialProfileId], references: [id], onDelete: Cascade)
+  goal                Goal?                @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  results             ScenarioResult[]
+  aiAnalyses          AIAnalysis[]
+  verificationResults VerificationResult[]
+
+  @@index([financialProfileId])
+  @@index([goalId])
+  @@map("scenarios")
+}
+
+model ScenarioResult {
+  id         String   @id @default(uuid()) @db.Uuid
+  scenarioId String   @map("scenario_id") @db.Uuid
+  resultData Json     @map("result_data") @db.JsonB
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  scenario   Scenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+
+  @@index([scenarioId])
+  @@map("scenario_results")
+}
+
+model FinancialSnapshot {
+  id                 String           @id @default(uuid()) @db.Uuid
+  financialProfileId String           @map("financial_profile_id") @db.Uuid
+  capturedAt         DateTime         @default(now()) @map("captured_at") @db.Timestamptz(6)
+  snapshotData       Json             @map("snapshot_data") @db.JsonB
+  metadata           Json?
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  financialProfile   FinancialProfile @relation(fields: [financialProfileId], references: [id], onDelete: Cascade)
+
+  @@index([financialProfileId, capturedAt(sort: Desc)])
+  @@map("financial_snapshots")
+}
+
+model EvidenceSource {
+  id            String             @id @default(uuid()) @db.Uuid
+  name          String             @db.VarChar(200)
+  publisher     String?            @db.VarChar(200)
+  domain        String?            @db.VarChar(253)
+  sourceType    String             @map("source_type") @db.VarChar(50)
+  sourceUrl     String?            @map("source_url") @db.Text
+  reliability   Json?
+  lastCheckedAt DateTime?          @map("last_checked_at") @db.Timestamptz(6)
+  freshUntil    DateTime?          @map("fresh_until") @db.Timestamptz(6)
+  createdAt     DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  documents     EvidenceDocument[]
+
+  @@index([domain])
+  @@index([sourceType])
+  @@map("evidence_sources")
+}
+
+model EvidenceDocument {
+  id              String          @id @default(uuid()) @db.Uuid
+  sourceId        String?         @map("source_id") @db.Uuid
+  title           String          @db.VarChar(500)
+  canonicalUrl    String?         @map("canonical_url") @db.Text
+  publishedAt     DateTime?       @map("published_at") @db.Timestamptz(6)
+  freshUntil      DateTime?       @map("fresh_until") @db.Timestamptz(6)
+  contentMetadata Json?           @map("content_metadata") @db.JsonB
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  source          EvidenceSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  chunks          EvidenceChunk[]
+
+  @@index([sourceId])
+  @@map("evidence_documents")
+}
+
+model EvidenceChunk {
+  id         String           @id @default(uuid()) @db.Uuid
+  documentId String           @map("document_id") @db.Uuid
+  chunkIndex Int              @map("chunk_index")
+  content    String           @db.Text
+  tokenCount Int?             @map("token_count")
+  metadata   Json?
+  createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  document   EvidenceDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, chunkIndex])
+  @@map("evidence_chunks")
+}
+
+model AIAnalysis {
+  id                  String               @id @default(uuid()) @db.Uuid
+  userId              String?              @map("user_id") @db.Uuid
+  financialProfileId  String?              @map("financial_profile_id") @db.Uuid
+  scenarioId          String?              @map("scenario_id") @db.Uuid
+  provider            String?              @db.VarChar(100)
+  model               String?              @db.VarChar(200)
+  promptVersion       String?              @map("prompt_version") @db.VarChar(100)
+  status              String               @default("pending") @db.VarChar(30)
+  responseData        Json?                @map("response_data") @db.JsonB
+  createdAt           DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  completedAt         DateTime?            @map("completed_at") @db.Timestamptz(6)
+  user                User?                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  financialProfile    FinancialProfile?    @relation(fields: [financialProfileId], references: [id], onDelete: SetNull)
+  scenario            Scenario?            @relation(fields: [scenarioId], references: [id], onDelete: SetNull)
+  verificationResults VerificationResult[]
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([financialProfileId, createdAt(sort: Desc)])
+  @@index([scenarioId])
+  @@map("ai_analyses")
+}
+
+model VerificationResult {
+  id              String     @id @default(uuid()) @db.Uuid
+  aiAnalysisId    String     @map("ai_analysis_id") @db.Uuid
+  scenarioId      String?    @map("scenario_id") @db.Uuid
+  status          String     @db.VarChar(30)
+  verifierVersion String?    @map("verifier_version") @db.VarChar(100)
+  details         Json       @db.JsonB
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  aiAnalysis      AIAnalysis @relation(fields: [aiAnalysisId], references: [id], onDelete: Cascade)
+  scenario        Scenario?  @relation(fields: [scenarioId], references: [id], onDelete: SetNull)
+
+  @@index([aiAnalysisId, createdAt(sort: Desc)])
+  @@index([scenarioId])
+  @@map("verification_results")
+}
+
+model MarketData {
+  id             String    @id @default(uuid()) @db.Uuid
+  symbol         String    @db.VarChar(100)
+  market         String?   @db.VarChar(100)
+  source         String    @db.VarChar(200)
+  value          Decimal   @db.Decimal(24, 8)
+  observedAt     DateTime  @map("observed_at") @db.Timestamptz(6)
+  freshUntil     DateTime? @map("fresh_until") @db.Timestamptz(6)
+  sourceMetadata Json?     @map("source_metadata") @db.JsonB
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([symbol, source, observedAt])
+  @@map("market_data")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  action     String   @db.VarChar(100)
+  entityType String   @map("entity_type") @db.VarChar(100)
+  entityId   String?  @map("entity_id") @db.VarChar(200)
+  details    Json?
+  occurredAt DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, occurredAt(sort: Desc)])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}

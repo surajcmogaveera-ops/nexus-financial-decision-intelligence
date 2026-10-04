@@ -4,16 +4,27 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "pnpm prisma:generate && tsc -p tsconfig.json",
     "start": "node dist/server.js",
+    "prisma:generate": "prisma generate",
+    "prisma:validate": "prisma validate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:status": "prisma migrate status",
     "test": "pnpm build && node --test"
   },
   "dependencies": {
-    "express": "^5.2.1"
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
+    "dotenv": "^18.0.5",
+    "express": "^5.2.1",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^24.10.0",
+    "@types/pg": "^8.23.1",
+    "prisma": "7.10.0",
     "typescript": "^5.9.3"
   }
 }

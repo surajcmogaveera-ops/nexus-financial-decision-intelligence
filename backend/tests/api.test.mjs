@@ -26,6 +26,45 @@ test("health remains available", async () => {
   assert.deepEqual(await response.json(), { status: "ok" });
 });
 
+test("database health returns success only after its connection check resolves", async () => {
+  const dbServer = createApp({ databaseHealthCheck: async () => {} }).listen(0, "127.0.0.1");
+  await new Promise((resolve, reject) => {
+    dbServer.once("listening", resolve);
+    dbServer.once("error", reject);
+  });
+  try {
+    const response = await fetch(`http://127.0.0.1:${dbServer.address().port}/health/db`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { status: "ok", database: "ok" });
+  } finally {
+    await new Promise((resolve, reject) => dbServer.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("database health failure is structured and does not affect process health", async () => {
+  const dbServer = createApp({
+    databaseHealthCheck: async () => { throw new Error("password=never-return-this"); },
+  }).listen(0, "127.0.0.1");
+  await new Promise((resolve, reject) => {
+    dbServer.once("listening", resolve);
+    dbServer.once("error", reject);
+  });
+  try {
+    const base = `http://127.0.0.1:${dbServer.address().port}`;
+    const databaseResponse = await fetch(`${base}/health/db`);
+    assert.equal(databaseResponse.status, 503);
+    const body = await databaseResponse.json();
+    assert.equal(body.error.code, "DATABASE_UNAVAILABLE");
+    assert.equal(JSON.stringify(body).includes("never-return-this"), false);
+
+    const processResponse = await fetch(`${base}/health`);
+    assert.equal(processResponse.status, 200);
+    assert.deepEqual(await processResponse.json(), { status: "ok" });
+  } finally {
+    await new Promise((resolve, reject) => dbServer.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test("recalculate returns raw, derived, provenance and risk metadata", async () => {
   const response = await fetch(`${baseUrl}/api/financial-twin/recalculate`, {
     method: "POST",

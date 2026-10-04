@@ -1,13 +1,33 @@
 import express, { type ErrorRequestHandler } from "express";
 import { InputValidationError } from "./financial/schemas.js";
 import { financialTwinRouter } from "./financial/routes.js";
+import { checkDatabaseConnection } from "./db/prisma.js";
 
-export function createApp(): express.Express {
+export interface AppDependencies {
+  databaseHealthCheck?: () => Promise<void>;
+}
+
+export function createApp(dependencies: AppDependencies = {}): express.Express {
   const app = express();
+  const databaseHealthCheck = dependencies.databaseHealthCheck ?? checkDatabaseConnection;
   app.use(express.json({ limit: "64kb", strict: true }));
 
   app.get("/health", (_request, response) => {
     response.status(200).json({ status: "ok" });
+  });
+  app.get("/health/db", async (_request, response) => {
+    try {
+      await databaseHealthCheck();
+      response.status(200).json({ status: "ok", database: "ok" });
+    } catch {
+      response.status(503).json({
+        error: {
+          code: "DATABASE_UNAVAILABLE",
+          message: "Database health check failed.",
+          details: {},
+        },
+      });
+    }
   });
   app.use("/api/financial-twin", financialTwinRouter);
 

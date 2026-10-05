@@ -1,18 +1,18 @@
 import { Router } from "express";
-import { createUserContextMiddleware } from "../auth/middleware.js";
-import type { UserContextResolver } from "../auth/context.js";
+import { createAuthenticationMiddleware } from "../auth/middleware.js";
+import type { AuthService } from "../auth/service.js";
 import type { FinancialDataRepository } from "../financial/profileRepository.js";
 import { createOwnedGoal, listOwnedGoals, updateOwnedGoal } from "./service.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export function createGoalsRouter(repository: FinancialDataRepository, resolveUserContext: UserContextResolver) {
+export function createGoalsRouter(repository: FinancialDataRepository, auth: AuthService) {
   const router = Router();
-  router.use(createUserContextMiddleware(resolveUserContext));
+  router.use(createAuthenticationMiddleware(auth));
 
   router.get("/", async (request, response, next) => {
     try {
-      response.status(200).json(await listOwnedGoals(request.authenticatedUser!.userId, repository));
+      response.status(200).json(await listOwnedGoals(request.auth!.userId, repository));
     } catch (error) {
       next(error);
     }
@@ -20,7 +20,7 @@ export function createGoalsRouter(repository: FinancialDataRepository, resolveUs
 
   router.post("/", async (request, response, next) => {
     try {
-      response.status(201).json(await createOwnedGoal(request.authenticatedUser!.userId, request.body, repository));
+      response.status(201).json(await createOwnedGoal(request.auth!.userId, request.body, repository));
     } catch (error) {
       next(error);
     }
@@ -33,7 +33,7 @@ export function createGoalsRouter(repository: FinancialDataRepository, resolveUs
         return;
       }
       response.status(200).json(await updateOwnedGoal(
-        request.authenticatedUser!.userId,
+        request.auth!.userId,
         request.params.id!,
         request.body,
         repository,

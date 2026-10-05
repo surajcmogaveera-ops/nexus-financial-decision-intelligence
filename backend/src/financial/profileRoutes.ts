@@ -1,18 +1,17 @@
 import { Router } from "express";
-import { createUserContextMiddleware } from "../auth/middleware.js";
-import type { UserContextResolver } from "../auth/context.js";
+import { createAuthenticationMiddleware } from "../auth/middleware.js";
+import type { AuthService } from "../auth/service.js";
 import type { FinancialDataRepository } from "./profileRepository.js";
 import { getOwnedFinancialTwin } from "./profileService.js";
 
 export function createFinancialProfileRouter(
   repository: FinancialDataRepository,
-  resolveUserContext: UserContextResolver,
+  auth: AuthService,
 ) {
   const router = Router();
-  router.get("/", createUserContextMiddleware(resolveUserContext), async (request, response, next) => {
+  router.get("/", createAuthenticationMiddleware(auth), async (request, response, next) => {
     try {
-      const user = request.authenticatedUser!;
-      response.status(200).json(await getOwnedFinancialTwin(user.userId, repository));
+      response.status(200).json(await getOwnedFinancialTwin(request.auth!.userId, repository));
     } catch (error) {
       next(error);
     }

@@ -95,8 +95,3 @@ export class InMemoryFinancialDataRepository {
     this.profiles.clear();
   }
 }
-
-export function testUserContext(request) {
-  const userId = request.get("x-test-user");
-  return userId ? { userId } : null;
-}

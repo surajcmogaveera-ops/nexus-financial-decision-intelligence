@@ -27,12 +27,13 @@ NODE + EXPRESS BACKEND
 ## Ownership
 
 - **Frontend:** Next.js and TypeScript UI, communicating with the Node API. It does not call Gemini or the AI service for normal user operations and is not the source of financial calculations.
-- **Node backend:** The authoritative application backend and Express/TypeScript boundary. It owns application routing, future authentication/authorization, users and profiles, Financial Twin raw data, goals, scenarios, PostgreSQL access, market-data integration, calls to the AI service, and application-level orchestration and verification. A Prisma schema/migration and shared client access layer are implemented; data CRUD is not.
+- **Node backend:** The authoritative application backend and Express/TypeScript boundary. It owns authentication/authorization, users and profiles, Financial Twin raw data, goals, scenarios, PostgreSQL access, market-data integration, calls to the AI service, and application-level orchestration and verification. Prisma owns account and financial persistence.
 - **PostgreSQL:** Node + Prisma is the authoritative application persistence path. `DATABASE_URL` configures access. The initial migration `20261004120000_init_nexus_schema` has been applied and verified; database health checks use a real connection. No seed data is created by the application.
 - **Financial Engine:** The deterministic TypeScript implementation in the Node backend is the authoritative production calculation source. It recalculates derived metrics from validated raw financial inputs, uses decimal-string/BigInt arithmetic for money, and exposes explicit, deterministic risk flags with computed provenance. Python financial, goal, and risk engines are **LEGACY/REFERENCE** behavioral and parity oracles; Python is not an active production financial backend and these engines are not part of the AI service.
 - **Scenario Engine:** The in-memory deterministic implementation in the Node backend applies validated scenario transforms to cloned raw Financial Twin state, recalculates baseline and scenario using the same Financial Engine, then derives deltas, comparison/profile risk flags, provenance, and stable evidence. It does not persist scenario executions.
 - **Simulation API:** `POST /api/simulations` delegates to a shared Node Simulation Service, which validates the request, invokes the existing Scenario Engine, and maps its result to the versioned API response. The prior `POST /api/scenarios/simulate` route uses the same service and keeps its Hour 6 response shape.
-- **Owned Financial Twin and Goals APIs:** Protected Node routes resolve a server-side `AuthenticatedUserContext`, then use profile/goal services and Prisma repositories scoped to that user. A temporary development identity reads `NEXUS_DEV_USER_ID` only when `NODE_ENV` is `development` or `test`; production does not accept that adapter or client-supplied IDs.
+- **Authentication:** Registration and login hash passwords with bcrypt and issue an eight-hour signed HttpOnly SameSite=Lax cookie. Middleware verifies the cookie and places the trusted subject in `req.auth.userId`. CORS only allows configured explicit origins and enables credentials for them; cookies are Secure in production.
+- **Owned Financial Twin and Goals APIs:** Protected Node routes derive ownership solely from the verified authenticated request context, then use profile/goal services and Prisma repositories scoped to that user. Client-supplied IDs never select an owner. Hour 8's development identity was removed; `NEXUS_DEV_USER_ID` is not used.
 - **FastAPI AI service:** Owns Gemini interaction, document ingestion, chunking, embeddings, retrieval, RAG, and AI-specific structured-output validation. It is the intelligence service, not a second production Financial Twin backend. It remains **SCAFFOLDED** with a health endpoint only.
 - **Verification:** Final business/application verification belongs to the Node backend. AI structured-output checks belong to the AI service. Current deterministic Python verification/evidence code remains **LEGACY/REFERENCE**.
 - **Node → FastAPI:** The Node backend will call the AI service through an internal API when a future application flow needs AI. There is no caller or AI feature yet.
@@ -45,8 +46,9 @@ NODE + EXPRESS BACKEND
 - Validated TypeScript Financial Twin contracts, deterministic metric and goal calculations, comparison-based risk detection, stable risk evidence IDs, validation, structured errors, provenance, and Python-reference parity fixtures/tests.
 - Temporary, request-based and in-memory `POST /api/financial-twin/recalculate`; it does not persist state.
 - In-memory deterministic `POST /api/scenarios/simulate` supporting investment contribution change, income shock, expense change, rent change, one-time emergency expense, monthly debt payment change, goal change, and explicitly unsupported market stress. It does not persist results.
-- Node-only in-memory `POST /api/simulations` with the same eight scenario contracts and response calculation version `1.0`. Persistence is deferred because the request has no authenticated financial-profile owner.
+- Node-only in-memory `POST /api/simulations` with the same eight scenario contracts and response calculation version `1.0`. The endpoint calculates only from the supplied raw baseline; it does not associate the calculation with an account or persist results.
 - PostgreSQL-backed `GET /api/financial-twin`, `GET /api/goals`, `POST /api/goals`, and ownership-scoped `PUT /api/goals/:id`. Goal and Financial Twin derived values are recalculated in memory through the existing deterministic engines; only raw goal values are written.
+- `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, and protected `GET /api/auth/me`; password hashing, signed cookie sessions, and authenticated ownership context.
 - Prisma 7.10.0 schema for the NEXUS application data model, initial PostgreSQL migration, shared client integration, and dependency-aware `GET /health/db`.
 - FastAPI scaffold and `GET /health` only.
 - Architecture documentation and target directories.
@@ -64,7 +66,7 @@ NODE + EXPRESS BACKEND
 
 ### NOT YET IMPLEMENTED
 
-- Full authentication, user/profile CRUD, goal deletion and individual goal reads, persisted scenario definitions/results and simulations, Gemini, RAG, embeddings, market APIs, Node-to-FastAPI calls, and frontend product UI.
+- Advanced account recovery, email verification, OAuth, MFA, user/profile CRUD, goal deletion and individual goal reads, persisted scenario definitions/results and simulations, Gemini, RAG, embeddings, market APIs, Node-to-FastAPI calls, and frontend product UI.
 
 Financial Twin recalculation remains request-based and non-persistent. The Python SQLAlchemy/Alembic layer is a legacy parity/reference artifact only; it is not the production persistence owner.
 
@@ -92,14 +94,16 @@ Delta, risk flags, evidence, assumptions
 Versioned Simulation Response (calculationVersion 1.0)
 ```
 
-The simulation response is generated entirely by the Node.js deterministic calculation path. FastAPI/Gemini are not required. The endpoint accepts a supplied raw baseline and structured scenario, requires an explicit calculation date, and does not persist because no authenticated profile owner is available.
+The simulation response is generated entirely by the Node.js deterministic calculation path. FastAPI/Gemini are not required. The endpoint accepts a supplied raw baseline and structured scenario, requires an explicit calculation date, and remains a public, non-persistent calculation endpoint; it does not read account data.
 
 ### Financial Twin and Goal ownership flows
 
 ```text
-trusted user context
+authenticated request
         ↓
-Financial Profile (Prisma/PostgreSQL)
+verified session token → trusted user ID
+        ↓
+Financial Profile ownership (Prisma/PostgreSQL)
         ↓
 raw state from PostgreSQL and owned related records
         ↓
@@ -111,7 +115,9 @@ Financial Twin response (raw separate from derived)
 ```
 
 ```text
-trusted user context
+authenticated request
+        ↓
+verified session token → trusted user ID
         ↓
 Financial Profile ownership lookup
         ↓
@@ -122,6 +128,6 @@ existing deterministic Goal Engine
 goal response (persisted raw fields plus computed progress)
 ```
 
-The development identity adapter is temporary and is not production authentication. It never creates users or profiles; production requests require a future trusted authentication middleware. Missing profile inputs remain missing and return a structured error instead of being replaced with synthetic zero values.
+Authentication determines ownership for Financial Twin and Goal APIs; no development identity shortcut or client-provided user ID is trusted. Financial calculations remain independent of authentication and consume validated raw domain inputs. Missing profile inputs remain missing and return a structured error instead of being replaced with synthetic zero values. `NEXUS_DEV_USER_ID` is no longer used.
 
 This is only the architecture reset; it does not make NEXUS architecturally complete.

@@ -1,20 +1,25 @@
 import type { RequestHandler } from "express";
-import type { UserContextResolver } from "./context.js";
+import { readAuthenticationCookie } from "./cookies.js";
+import type { AuthService } from "./service.js";
 
-export function createUserContextMiddleware(resolver: UserContextResolver): RequestHandler {
+export function createAuthenticationMiddleware(auth: AuthService): RequestHandler {
   return (request, response, next) => {
-    Promise.resolve(resolver(request)).then((context) => {
-      if (!context?.userId) {
+    const token = readAuthenticationCookie(request.headers.cookie);
+    if (!token) {
+      response.status(401).json({
+        error: { code: "AUTHENTICATION_REQUIRED", message: "Authentication is required.", details: {} },
+      });
+      return;
+    }
+
+    void auth.verifySessionToken(token).then((context) => {
+      if (!context) {
         response.status(401).json({
-          error: {
-            code: "AUTHENTICATION_REQUIRED",
-            message: "A trusted user context is required.",
-            details: {},
-          },
+          error: { code: "UNAUTHORIZED", message: "Authentication is invalid or expired.", details: {} },
         });
         return;
       }
-      request.authenticatedUser = context;
+      request.auth = context;
       next();
     }).catch(next);
   };

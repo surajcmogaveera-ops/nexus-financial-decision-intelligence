@@ -5,24 +5,48 @@ import { checkDatabaseConnection } from "./db/prisma.js";
 import { scenarioRouter } from "./scenarios/routes.js";
 import { simulationRouter } from "./simulations/routes.js";
 import { SimulationServiceError } from "./simulations/schemas.js";
-import { createDevelopmentIdentityResolver, type UserContextResolver } from "./auth/context.js";
 import { PrismaFinancialDataRepository, type FinancialDataRepository } from "./financial/profileRepository.js";
 import { createFinancialTwinReadRouter } from "./financial/routes.js";
 import { createGoalsRouter } from "./goals/routes.js";
 import { ApiResourceError } from "./api/errors.js";
+import { AuthConfigurationError, AuthService, AuthServiceError } from "./auth/service.js";
+import { PrismaAuthUserRepository, type AuthUserRepository } from "./auth/repository.js";
+import { createAuthRouter } from "./auth/routes.js";
 
 export interface AppDependencies {
   databaseHealthCheck?: () => Promise<void>;
-  userContextResolver?: UserContextResolver;
   financialDataRepository?: FinancialDataRepository;
+  authUserRepository?: AuthUserRepository;
+  authService?: AuthService;
+}
+
+export function assertFrontendOriginConfiguration(
+  value = process.env.FRONTEND_ORIGIN,
+  environment = process.env.NODE_ENV,
+): void {
+  if (environment !== "production") return;
+  const origins = value?.split(",").map((origin) => origin.trim()).filter(Boolean) ?? [];
+  if (origins.length === 0) throw new Error("A production frontend origin must be configured.");
+  for (const origin of origins) {
+    let parsed: URL;
+    try {
+      parsed = new URL(origin);
+    } catch {
+      throw new Error("Production frontend origins must be valid HTTPS origins.");
+    }
+    if (parsed.protocol !== "https:" || parsed.origin !== origin || origin === "*") {
+      throw new Error("Production frontend origins must be valid HTTPS origins.");
+    }
+  }
 }
 
 export function createApp(dependencies: AppDependencies = {}): express.Express {
   const app = express();
   const databaseHealthCheck = dependencies.databaseHealthCheck ?? checkDatabaseConnection;
   const financialDataRepository = dependencies.financialDataRepository ?? new PrismaFinancialDataRepository();
-  const userContextResolver = dependencies.userContextResolver ?? createDevelopmentIdentityResolver();
+  const auth = dependencies.authService ?? new AuthService(dependencies.authUserRepository ?? new PrismaAuthUserRepository());
   app.use(express.json({ limit: "64kb", strict: true }));
+  app.use(createCorsMiddleware());
 
   app.get("/health", (_request, response) => {
     response.status(200).json({ status: "ok" });
@@ -41,9 +65,10 @@ export function createApp(dependencies: AppDependencies = {}): express.Express {
       });
     }
   });
+  app.use("/api/auth", createAuthRouter(auth));
   app.use("/api/financial-twin", financialTwinRouter);
-  app.use("/api/financial-twin", createFinancialTwinReadRouter(financialDataRepository, userContextResolver));
-  app.use("/api/goals", createGoalsRouter(financialDataRepository, userContextResolver));
+  app.use("/api/financial-twin", createFinancialTwinReadRouter(financialDataRepository, auth));
+  app.use("/api/goals", createGoalsRouter(financialDataRepository, auth));
   app.use("/api/scenarios", scenarioRouter);
   app.use("/api/simulations", simulationRouter);
 
@@ -66,6 +91,18 @@ export function createApp(dependencies: AppDependencies = {}): express.Express {
     if (error instanceof ApiResourceError) {
       response.status(error.status).json({
         error: { code: error.code, message: error.message, details: error.details },
+      });
+      return;
+    }
+    if (error instanceof AuthServiceError) {
+      response.status(error.status).json({
+        error: { code: error.code, message: error.message, details: {} },
+      });
+      return;
+    }
+    if (error instanceof AuthConfigurationError) {
+      response.status(503).json({
+        error: { code: "AUTHENTICATION_UNAVAILABLE", message: "Authentication is not configured.", details: {} },
       });
       return;
     }
@@ -108,4 +145,40 @@ export function createApp(dependencies: AppDependencies = {}): express.Express {
   };
   app.use(errorHandler);
   return app;
+}
+
+function createCorsMiddleware(): express.RequestHandler {
+  const origins = new Set(
+    (process.env.FRONTEND_ORIGIN ?? "http://localhost:5173")
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean),
+  );
+  return (request, response, next) => {
+    const origin = request.get("origin");
+    if (!origin) {
+      if (request.method === "OPTIONS") {
+        response.sendStatus(204);
+        return;
+      }
+      next();
+      return;
+    }
+    if (!origins.has(origin)) {
+      response.status(403).json({
+        error: { code: "ORIGIN_NOT_ALLOWED", message: "Request origin is not allowed.", details: {} },
+      });
+      return;
+    }
+    response.setHeader("Access-Control-Allow-Origin", origin);
+    response.setHeader("Access-Control-Allow-Credentials", "true");
+    response.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS");
+    response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    response.vary("Origin");
+    if (request.method === "OPTIONS") {
+      response.sendStatus(204);
+      return;
+    }
+    next();
+  };
 }

@@ -7,6 +7,10 @@ const migration = await readFile(
   new URL("../prisma/migrations/20261004120000_init_nexus_schema/migration.sql", import.meta.url),
   "utf8",
 );
+const authMigration = await readFile(
+  new URL("../prisma/migrations/20261005042054_auth_password_hash/migration.sql", import.meta.url),
+  "utf8",
+);
 
 test("Prisma schema and initial migration contain the required NEXUS data models", () => {
   const models = [
@@ -65,4 +69,13 @@ test("raw profile storage uses Decimal and excludes derived Financial Twin metri
 
 test("migration contains no inserts or seed/demo data", () => {
   assert.doesNotMatch(migration, /\bINSERT\s+INTO\b/i);
+});
+
+test("authentication adds only an optional password hash to the existing User model", () => {
+  const user = schema.match(/model User \{([\s\S]*?)\n\}/)?.[1];
+  assert.ok(user);
+  assert.match(user, /passwordHash\s+String\?\s+@map\("password_hash"\)/);
+  assert.match(authMigration, /ALTER TABLE "users" ADD COLUMN\s+"password_hash" VARCHAR\(255\)/);
+  assert.doesNotMatch(authMigration, /\bINSERT\s+INTO\b/i);
+  assert.doesNotMatch(authMigration, /DROP TABLE|DROP COLUMN/i);
 });

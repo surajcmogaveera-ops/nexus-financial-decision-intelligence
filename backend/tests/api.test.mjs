@@ -325,7 +325,7 @@ test("invalid inputs return a structured validation error without a stack trace"
   assert.equal("stack" in body.error, false);
 });
 
-test("goal routes require a trusted development identity", async () => {
+test("goal routes require an authenticated session", async () => {
   const response = await fetch(`${baseUrl}/api/goals`);
   assert.equal(response.status, 401);
   assert.equal((await response.json()).error.code, "AUTHENTICATION_REQUIRED");

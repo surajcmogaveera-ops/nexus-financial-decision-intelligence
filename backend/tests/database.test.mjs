@@ -14,7 +14,7 @@ const validDatabaseUrl = "postgresql://example-user:example-password@127.0.0.1:5
 test("database configuration accepts PostgreSQL URLs and rejects other or malformed values safely", () => {
   assert.equal(getDatabaseUrl(validDatabaseUrl), validDatabaseUrl);
   for (const value of [undefined, "", "not-a-url", "https://example.test/db", "postgresql://localhost/"]) {
-    assert.throws(() => getDatabaseUrl(value), (error) => {
+    assert.throws(() => getDatabaseUrl(value ?? ""), (error) => {
       assert.ok(error instanceof DatabaseConfigurationError);
       assert.equal(error.message.includes("secret"), false);
       return true;

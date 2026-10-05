@@ -1,14 +1,23 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { createApp } from "../dist/app.js";
-import { createDevelopmentIdentityResolver } from "../dist/auth/context.js";
+import { AuthService } from "../dist/auth/service.js";
 import {
   GOAL_A, GOAL_B, PROFILE_A, PROFILE_B, USER_A, USER_B, USER_WITHOUT_PROFILE,
-  InMemoryFinancialDataRepository, makeGoal, makeProfile, testUserContext,
+  InMemoryFinancialDataRepository, makeGoal, makeProfile,
 } from "./helpers/in-memory-financial-repository.mjs";
+import { InMemoryAuthUserRepository } from "./helpers/in-memory-auth-repository.mjs";
 
-async function withServer(repository, resolver = testUserContext, callback) {
-  const server = createApp({ financialDataRepository: repository, userContextResolver: resolver }).listen(0, "127.0.0.1");
+const TEST_AUTH_SECRET = "hour-nine-test-secret-never-use-in-production-1234";
+let activeTokens = new Map();
+
+async function withServer(repository, callback) {
+  const auth = new AuthService(new InMemoryAuthUserRepository(), TEST_AUTH_SECRET, "test");
+  activeTokens = new Map(await Promise.all([USER_A, USER_B, USER_WITHOUT_PROFILE].map(async (userId) => [
+    userId,
+    await auth.createSessionToken(userId),
+  ])));
+  const server = createApp({ financialDataRepository: repository, authService: auth }).listen(0, "127.0.0.1");
   await new Promise((resolve, reject) => {
     server.once("listening", resolve);
     server.once("error", reject);
@@ -19,13 +28,14 @@ async function withServer(repository, resolver = testUserContext, callback) {
   } finally {
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     repository.clear?.();
+    activeTokens.clear();
   }
 }
 
 function request(baseUrl, userId, path, options = {}) {
   return fetch(`${baseUrl}${path}`, {
     ...options,
-    headers: { "x-test-user": userId, ...(options.headers ?? {}) },
+    headers: { ...(options.headers ?? {}), cookie: `nexus_session=${activeTokens.get(userId) ?? ""}` },
   });
 }
 
@@ -45,7 +55,7 @@ test("GET /api/financial-twin maps PostgreSQL raw relations and recalculates thr
     makeProfile({ goals: [goal] }),
     makeProfile({ id: PROFILE_B, userId: USER_B, monthlyIncome: "90000", monthlyExpenses: "70000", liquidSavings: "80000", monthlyDebtPayments: "0", essentialMonthlyExpenses: "70000" }),
   ]);
-  await withServer(repository, testUserContext, async (baseUrl) => {
+  await withServer(repository, async (baseUrl) => {
     const response = await request(baseUrl, USER_A, "/api/financial-twin?monthlySurplus=999999");
     assert.equal(response.status, 200);
     const twin = await response.json();
@@ -74,7 +84,7 @@ test("Financial Twin returns explicit errors for missing and incomplete profiles
   const repository = new InMemoryFinancialDataRepository([makeProfile({
     id: PROFILE_B, userId: USER_B, incomeSources: [], expenseCategories: [], assets: [],
   })]);
-  await withServer(repository, testUserContext, async (baseUrl) => {
+  await withServer(repository, async (baseUrl) => {
     const missing = await request(baseUrl, USER_WITHOUT_PROFILE, "/api/financial-twin");
     assert.equal(missing.status, 404);
     assert.equal((await missing.json()).error.code, "FINANCIAL_PROFILE_NOT_FOUND");
@@ -92,7 +102,7 @@ test("GET /api/goals handles empty lists, orders records deterministically, and 
     makeProfile({ goals: [] }),
     makeProfile({ id: PROFILE_B, userId: USER_B, goals: [newer, older] }),
   ]);
-  await withServer(repository, testUserContext, async (baseUrl) => {
+  await withServer(repository, async (baseUrl) => {
     const empty = await request(baseUrl, USER_A, "/api/goals");
     assert.equal(empty.status, 200);
     assert.deepEqual(await empty.json(), []);
@@ -109,7 +119,7 @@ test("GET /api/goals handles empty lists, orders records deterministically, and 
 
 test("POST /api/goals persists raw goal fields and returns deterministic computed goal information", async () => {
   const repository = new InMemoryFinancialDataRepository([makeProfile()]);
-  await withServer(repository, testUserContext, async (baseUrl) => {
+  await withServer(repository, async (baseUrl) => {
     const response = await request(baseUrl, USER_A, "/api/goals", {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(goalInput),
     });
@@ -130,7 +140,7 @@ test("POST /api/goals persists raw goal fields and returns deterministic compute
 
 test("POST /api/goals rejects negative, invalid-date, invalid-horizon, status, and derived-field inputs", async () => {
   const repository = new InMemoryFinancialDataRepository([makeProfile()]);
-  await withServer(repository, testUserContext, async (baseUrl) => {
+  await withServer(repository, async (baseUrl) => {
     const invalidGoals = [
       { ...goalInput, targetAmount: "-1" },
       { ...goalInput, targetDate: "2026-02-30", monthsRemaining: undefined },
@@ -156,7 +166,7 @@ test("PUT /api/goals/:id validates ownership, updates raw values, and recalculat
     makeProfile({ id: PROFILE_A, userId: USER_A, goals: [goalA] }),
     makeProfile({ id: PROFILE_B, userId: USER_B, goals: [goalB] }),
   ]);
-  await withServer(repository, testUserContext, async (baseUrl) => {
+  await withServer(repository, async (baseUrl) => {
     const updated = await request(baseUrl, USER_A, `/api/goals/${GOAL_A}`, {
       method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ monthlyContribution: "10000" }),
     });
@@ -185,18 +195,16 @@ test("PUT /api/goals/:id validates ownership, updates raw values, and recalculat
   });
 });
 
-test("development identity uses only configured environment and production rejects it", async () => {
-  const repository = new InMemoryFinancialDataRepository([makeProfile()]);
-  const developmentResolver = createDevelopmentIdentityResolver({ NODE_ENV: "development", NEXUS_DEV_USER_ID: USER_A });
-  await withServer(repository, developmentResolver, async (baseUrl) => {
-    const response = await request(baseUrl, USER_B, "/api/goals");
+test("protected route identity comes from the signed cookie instead of client-supplied IDs", async () => {
+  const repository = new InMemoryFinancialDataRepository([
+    makeProfile(),
+    makeProfile({ id: PROFILE_B, userId: USER_B, goals: [] }),
+  ]);
+  await withServer(repository, async (baseUrl) => {
+    const response = await request(baseUrl, USER_A, "/api/financial-twin?userId=" + USER_B, {
+      headers: { "x-test-user": USER_B },
+    });
     assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), []);
-  });
-  const productionResolver = createDevelopmentIdentityResolver({ NODE_ENV: "production", NEXUS_DEV_USER_ID: USER_A });
-  await withServer(repository, productionResolver, async (baseUrl) => {
-    const response = await request(baseUrl, USER_A, "/api/goals");
-    assert.equal(response.status, 401);
-    assert.equal((await response.json()).error.code, "AUTHENTICATION_REQUIRED");
+    assert.equal((await response.json()).raw.monthlyIncome, "30000");
   });
 });

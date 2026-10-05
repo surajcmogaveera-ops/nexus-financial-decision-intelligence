@@ -34,6 +34,9 @@ test("INVESTMENT_CHANGE flagship reuses existing engine and preserves baseline",
   assert.equal(result.scenarioState.raw.monthlyInvestmentContribution, "5000");
   assert.equal(result.scenarioState.provenance.raw.monthlyInvestmentContribution, "COMPUTED");
   assert.equal(result.scenarioState.provenance.derived.monthlySurplus, "COMPUTED");
+  assert.equal(result.scenarioState.provenance.assumptions, "ASSUMPTION");
+  assert.equal(result.baselineState.provenance.goalFields[0].targetAmount, "USER");
+  assert.equal(result.scenarioState.provenance.goalFields[0].targetAmount, "USER");
   assert.ok(result.riskFlags.some((flag) => flag.type === "GOAL_SHORTFALL"));
   assert.ok(result.assumptions.some((item) => item.includes("investment returns are not assumed")));
   assert.ok(result.evidence.every((record) => record.provenance === "COMPUTED" && /^CALC-[0-9A-F]{12}$/.test(record.evidenceId)));
@@ -76,6 +79,7 @@ test("all eight scenario types transform or report unsupported without fabricate
 
   const goal = run({ type: "GOAL_CHANGE", goalName: "Flagship", targetAmount: "250000", monthsRemaining: 10 });
   assert.equal(goal.scenarioState.raw.goals[0].targetAmount, "250000");
+  assert.equal(goal.scenarioState.provenance.goalFields[0].targetAmount, "COMPUTED");
   assert.equal(goal.scenarioState.raw.goals[0].targetDate, undefined);
   assert.equal(goal.scenarioMetrics.goals[0].monthsRemaining, 10);
   assert.equal(goal.scenarioMetrics.goals[0].currentFundingGap, "210000");

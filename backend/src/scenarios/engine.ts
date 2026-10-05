@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { addMoney, decimalToMinorUnits, minorUnitsToMoney, subtractMoney } from "../financial/money.js";
 import { parseFinancialTwinRequest } from "../financial/schemas.js";
 import { calculateFinancialTwin } from "../financial/service.js";
+import { Provenance } from "../financial/constants.js";
 import { calculateScenarioDelta } from "../financial/engine/financialMetrics.js";
 import { sumDecimalAmounts } from "../financial/engine/goalProgress.js";
 import { calculateProfileRiskFlags, calculateRiskFlags } from "../financial/engine/riskFlags.js";
@@ -163,7 +164,7 @@ function transformationEvidence(profile: FinancialProfile, transformed: Financia
       baselineValue: valuesAreNumeric ? baselineValue as Money : null,
       scenarioValue: valuesAreNumeric ? scenarioValue as Money : null,
       result: true,
-      provenance: "COMPUTED" as const,
+      provenance: Provenance.COMPUTED,
     };
     return { ...partial, evidenceId: calculationEvidenceId({
       metric: partial.metric, expression: partial.expression,
@@ -192,8 +193,8 @@ function mergeFlags(...groups: RiskFlag[][]): RiskFlag[] {
 function profileRiskEvidence(flags: RiskFlag[]): RiskCalculationEvidence[] {
   return flags.flatMap((flag) => {
     const recordFor = (metric: string, expression: string, baselineValue: RiskCalculationEvidence["baselineValue"], scenarioValue: RiskCalculationEvidence["scenarioValue"]): RiskCalculationEvidence => ({
-      metric, expression, baselineValue, scenarioValue, result: true, provenance: "COMPUTED",
-      evidenceId: calculationEvidenceId({ metric, expression, baseline: baselineValue, scenario: scenarioValue, result: true, provenance: "COMPUTED" }),
+      metric, expression, baselineValue, scenarioValue, result: true, provenance: Provenance.COMPUTED,
+      evidenceId: calculationEvidenceId({ metric, expression, baseline: baselineValue, scenario: scenarioValue, result: true, provenance: Provenance.COMPUTED }),
     });
     if (flag.trigger === "scenario_monthly_surplus < 0") {
       return [recordFor("monthly_surplus", "scenario_monthly_surplus < 0", "0", flag.details.monthlySurplus as string)];
@@ -209,10 +210,15 @@ function profileRiskEvidence(flags: RiskFlag[]): RiskCalculationEvidence[] {
 }
 
 function makeTwin(raw: FinancialProfile, derived: FinancialTwin["derived"]): FinancialTwin {
-  const derivedProvenance = Object.fromEntries(Object.keys(derived).map((key) => [key, "COMPUTED"])) as FinancialTwin["provenance"]["derived"];
+  const derivedProvenance = Object.fromEntries(Object.keys(derived).map((key) => [key, Provenance.COMPUTED])) as FinancialTwin["provenance"]["derived"];
   const twin: FinancialTwin = {
     raw, derived,
-    provenance: { raw: {}, derived: derivedProvenance },
+    provenance: {
+      raw: {},
+      derived: derivedProvenance,
+      goalFields: [],
+      assumptions: Provenance.ASSUMPTION,
+    },
     riskFlags: [], assumptions: [], calculatedAt: "",
   };
   twin.riskFlags = calculateProfileRiskFlags(twin);
@@ -229,7 +235,6 @@ export function runScenario(
   const unsupported = input.type === "MARKET_STRESS";
   const transformed = unsupported ? { raw: cloneProfile(profile), changed: [] as string[] } : transform(profile, input);
   const scenarioRaw = transformed.raw;
-  const changedFields = new Set(transformed.changed.map((field) => field.split(".").at(-1)!));
   const scenarioParsed = parseFinancialTwinRequest({ profile: scenarioRaw, asOfDate });
   const scenarioDerived = unsupported
     ? baselineTwin.derived
@@ -253,10 +258,26 @@ export function runScenario(
       .map((record) => [record.evidenceId, record]),
   ).values()];
   const rawProvenance = { ...baselineTwin.provenance.raw };
-  for (const field of changedFields) rawProvenance[field as keyof typeof rawProvenance] = "COMPUTED";
+  const goalFieldProvenance = baselineTwin.provenance.goalFields.map((fields) => ({ ...fields }));
+  for (const field of transformed.changed) {
+    const goalFieldMatch = /^goals\[(\d+)\]\.([^.]+)$/.exec(field);
+    if (goalFieldMatch) {
+      const goalIndex = Number(goalFieldMatch[1]);
+      const goalField = goalFieldMatch[2] as keyof (typeof scenarioRaw.goals)[number];
+      if (goalFieldProvenance[goalIndex]) goalFieldProvenance[goalIndex]![goalField] = Provenance.COMPUTED;
+      continue;
+    }
+    const rawField = field as keyof typeof rawProvenance;
+    if (rawField in rawProvenance) rawProvenance[rawField] = Provenance.COMPUTED;
+  }
   const scenarioState: ScenarioState = {
     raw: scenarioRaw,
-    provenance: { raw: rawProvenance, derived: scenarioTwin.provenance.derived },
+    provenance: {
+      raw: rawProvenance,
+      derived: scenarioTwin.provenance.derived,
+      goalFields: goalFieldProvenance,
+      assumptions: Provenance.ASSUMPTION,
+    },
   };
   return {
     scenarioId: scenarioId(profile, input, asOfDate),
@@ -273,7 +294,11 @@ export function runScenario(
       ...scenarioAssumptions[input.type],
       ...(unsupported ? ["The current Financial Twin has only an aggregate investments balance and no asset exposure detail; market valuation impact is unsupported and no investment value is changed."] : []),
     ],
-    provenance: { scenarioTransform: "COMPUTED", scenarioDerived: "COMPUTED" },
+    provenance: {
+      scenarioTransform: Provenance.COMPUTED,
+      scenarioDerived: Provenance.COMPUTED,
+      assumptions: Provenance.ASSUMPTION,
+    },
     calculatedAt: new Date().toISOString(),
   };
 }

@@ -521,6 +521,7 @@ test("invalid goal horizons and non-finite values are rejected", () => {
 test("every derived metric is computed provenance and raw state has no derived fields", () => {
   const result = twin(BASIC_PROFILE);
   assert.equal(result.provenance.derived.monthlySurplus, "COMPUTED");
+  assert.equal(result.provenance.assumptions, "ASSUMPTION");
   assert.equal(result.provenance.raw.monthlyIncome, "USER");
   assert.equal(result.provenance.raw.monthlyDebtPayments, "USER");
   assert.equal(result.provenance.raw.monthlyInvestmentContribution, "USER");

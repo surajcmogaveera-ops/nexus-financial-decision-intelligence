@@ -2,6 +2,7 @@ import { runScenario } from "../scenarios/engine.js";
 import type { ScenarioResult } from "../scenarios/types.js";
 import { AiServiceClient, AiServiceError } from "../ai/client.js";
 import { createAiAnalysisRequest, type AiAnalysisResponse } from "../ai/types.js";
+import { Provenance } from "../financial/constants.js";
 import { CALCULATION_VERSION } from "./constants.js";
 import { SimulationServiceError, validateSimulationRequest } from "./schemas.js";
 import type { BaselineRequestField, SimulationResponse, SimulationWithAiResponse } from "./types.js";
@@ -68,7 +69,15 @@ export async function simulateWithAi(
     if (isNotConfiguredResponse(explanation)) {
       return { ...simulation, ai: unavailableAi("NOT_CONFIGURED") };
     }
-    return { ...simulation, ai: { status: "READY", explanation, message: null } };
+    return {
+      ...simulation,
+      ai: {
+        status: "READY",
+        explanation,
+        provenance: Provenance.AI_INTERPRETATION,
+        message: null,
+      },
+    };
   } catch (error) {
     if (!(error instanceof AiServiceError) || error.code === "INVALID_AI_REQUEST") {
       throw error;

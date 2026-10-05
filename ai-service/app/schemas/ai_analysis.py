@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 Money = Annotated[str, StringConstraints(pattern=r"^(?:0|[0-9]+(?:\.[0-9]+)?)$")]
 SignedMoney = Annotated[str, StringConstraints(pattern=r"^-?(?:0|[0-9]+(?:\.[0-9]+)?)$")]
@@ -102,6 +102,19 @@ class DerivedProvenance(StrictModel):
 class ProvenanceState(StrictModel):
     raw: RawProvenance
     derived: DerivedProvenance
+    goalFields: list[dict[str, Provenance]] = Field(default_factory=list)
+    # Additive default keeps older internal Node clients contract-compatible.
+    assumptions: Literal["ASSUMPTION"] = "ASSUMPTION"
+
+    @model_validator(mode="after")
+    def reject_ai_as_source_data(self) -> "ProvenanceState":
+        raw_values = [
+            *[value for value in self.raw.model_dump().values() if value is not None],
+            *(value for goal in self.goalFields for value in goal.values()),
+        ]
+        if "AI_INTERPRETATION" in raw_values:
+            raise ValueError("AI interpretation cannot be provenance for source financial data.")
+        return self
 
 
 class RiskFlag(StrictModel):

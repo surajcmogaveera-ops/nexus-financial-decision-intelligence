@@ -144,6 +144,18 @@ def test_correct_token_with_malformed_contract_returns_clean_422(client: TestCli
     assert "traceback" not in response.text.lower()
 
 
+@pytest.mark.parametrize("invalid", ["AI", "GENERATED", "SYSTEM", "UNKNOWN", "MODEL", "AI_GENERATED", "AI_INTERPRETATION"])
+def test_invalid_provenance_is_rejected_at_internal_boundary(
+    client: TestClient,
+    valid_payload: dict,
+    invalid: str,
+) -> None:
+    malformed = deepcopy(valid_payload)
+    malformed["financialTwin"]["provenance"]["raw"]["monthlyIncome"] = invalid
+    response = client.post(ENDPOINT, json=malformed, headers={"X-Service-Token": SERVICE_TOKEN})
+    assert response.status_code == 422
+
+
 def test_unexpected_service_error_returns_clean_500(
     client: TestClient,
     valid_payload: dict,

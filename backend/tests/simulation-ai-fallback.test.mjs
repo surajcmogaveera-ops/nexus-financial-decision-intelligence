@@ -58,6 +58,9 @@ test("successful AI explanation is additive to the deterministic simulation", as
   assert.deepEqual(simulation, direct);
   assert.equal(ai.status, "READY");
   assert.equal(ai.explanation.summary, "This explanation came from the AI service.");
+  assert.equal(ai.provenance, "AI_INTERPRETATION");
+  assert.equal(result.scenario.derived.monthlySurplus, direct.scenario.derived.monthlySurplus);
+  assert.equal(result.baseline.provenance.assumptions, "ASSUMPTION");
   assert.equal(ai.message, null);
 });
 

@@ -1,4 +1,4 @@
-import { GOAL_STATUSES } from "./constants.js";
+import { GOAL_STATUSES, Provenance, type Provenance as ProvenanceValue } from "./constants.js";
 import { parseMoney } from "./money.js";
 import type {
   FinancialGoal,
@@ -22,6 +22,7 @@ export class InputValidationError extends Error {
 export interface ParsedFinancialTwinRequest {
   request: FinancialTwinRequest;
   suppliedFields: Set<RawField>;
+  goalFieldProvenance: Array<Partial<Record<keyof FinancialGoal, ProvenanceValue>>>;
 }
 
 type JsonObject = Record<string, unknown>;
@@ -286,6 +287,17 @@ export function parseFinancialTwinRequest(body: unknown): ParsedFinancialTwinReq
     if (source[field] !== undefined) suppliedFields.add(field);
   }
 
-  return { request: { profile, asOfDate }, suppliedFields };
+  const goalFieldProvenance = ((source.goals as unknown[] | undefined) ?? []).map((goal, index) => {
+    const supplied = isObject(goal) ? goal : {};
+    const parsed = goals[index]!;
+    return Object.fromEntries(
+      Object.keys(parsed).map((key) => [
+        key,
+        Object.hasOwn(supplied, key) ? Provenance.USER : Provenance.ASSUMPTION,
+      ]),
+    ) as Partial<Record<keyof FinancialGoal, ProvenanceValue>>;
+  });
+
+  return { request: { profile, asOfDate }, suppliedFields, goalFieldProvenance };
 }
 

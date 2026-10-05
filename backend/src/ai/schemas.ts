@@ -1,4 +1,5 @@
 import type { AiAnalysisRequest, AiAnalysisResponse } from "./types.js";
+import { isProvenance, Provenance } from "../financial/constants.js";
 
 const REQUEST_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const RISK_TYPES = new Set([
@@ -32,18 +33,18 @@ export function validateAiAnalysisRequest(value: unknown): AiAnalysisRequest {
   exactKeys(twin, ["raw", "derived", "provenance"]);
   record(twin.raw);
   record(twin.derived);
-  record(twin.provenance);
+  validateProvenanceState(twin.provenance, twin.raw, twin.derived);
   const baseline = record(request.baseline);
   exactKeys(baseline, ["raw", "derived", "provenance", "evidence"]);
   record(baseline.raw);
   record(baseline.derived);
-  record(baseline.provenance);
+  validateProvenanceState(baseline.provenance, baseline.raw, baseline.derived);
   validateEvidenceArray(baseline.evidence);
   const scenario = record(request.scenario);
   exactKeys(scenario, ["type", "status", "raw", "derived", "provenance", "evidence"]);
   record(scenario.raw);
   record(scenario.derived);
-  record(scenario.provenance);
+  validateProvenanceState(scenario.provenance, scenario.raw, scenario.derived);
   validateEvidenceArray(scenario.evidence);
   stringArray(request.assumptions);
   validateEvidenceArray(request.evidence);
@@ -88,13 +89,53 @@ function stringArray(value: unknown): void {
   if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) throw new AiContractValidationError();
 }
 
+function validateProvenanceState(value: unknown, rawValue: unknown, derivedValue: unknown): void {
+  const provenance = record(value);
+  const rawData = record(rawValue);
+  const derivedData = record(derivedValue);
+  exactKeys(provenance, ["raw", "derived", "goalFields", "assumptions"]);
+  const rawProvenance = record(provenance.raw);
+  for (const [key, value] of Object.entries(rawProvenance)) {
+    if (!(key in rawData) || !isProvenance(value)) {
+      throw new AiContractValidationError("AI request contains invalid raw provenance.");
+    }
+    if (value === Provenance.AI_INTERPRETATION) {
+      throw new AiContractValidationError("AI interpretation provenance cannot be trusted as raw financial data.");
+    }
+  }
+  const derivedProvenance = record(provenance.derived);
+  const derivedKeys = Object.keys(derivedData);
+  if (Object.keys(derivedProvenance).length !== derivedKeys.length ||
+      derivedKeys.some((key) => derivedProvenance[key] !== Provenance.COMPUTED)) {
+    throw new AiContractValidationError("Every derived financial value must be labeled COMPUTED.");
+  }
+  if (provenance.assumptions !== Provenance.ASSUMPTION) {
+    throw new AiContractValidationError("AI request assumptions must be labeled ASSUMPTION.");
+  }
+  if (!Array.isArray(provenance.goalFields)) {
+    throw new AiContractValidationError("AI request goal field provenance must be an array.");
+  }
+  if (!Array.isArray(rawData.goals) || provenance.goalFields.length !== rawData.goals.length) {
+    throw new AiContractValidationError("AI request goal field provenance does not match the supplied goals.");
+  }
+  for (const [index, goalFields] of provenance.goalFields.entries()) {
+    const fields = record(goalFields);
+    const goalData = record(rawData.goals[index]);
+    if (Object.entries(fields).some(([key, item]) =>
+      !(key in goalData) || !isProvenance(item) || item === Provenance.AI_INTERPRETATION,
+    )) {
+      throw new AiContractValidationError("AI interpretation cannot be trusted as goal input provenance.");
+    }
+  }
+}
+
 function validateEvidenceArray(value: unknown): void {
   if (!Array.isArray(value)) throw new AiContractValidationError();
   for (const item of value) {
     const evidence = record(item);
     exactKeys(evidence, ["metric", "expression", "baselineValue", "scenarioValue", "result", "provenance", "evidenceId"]);
     if (typeof evidence.metric !== "string" || typeof evidence.expression !== "string" ||
-        typeof evidence.result !== "boolean" || evidence.provenance !== "COMPUTED" ||
+        typeof evidence.result !== "boolean" || evidence.provenance !== Provenance.COMPUTED ||
         typeof evidence.evidenceId !== "string") throw new AiContractValidationError();
     for (const key of ["baselineValue", "scenarioValue"]) {
       const entry = evidence[key];

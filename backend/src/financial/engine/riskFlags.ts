@@ -1,5 +1,6 @@
 import { decimalToMinorUnits } from "../money.js";
 import { calculationEvidenceId, canonicalEvidenceNumber } from "./evidenceIdentity.js";
+import { Provenance } from "../constants.js";
 import type {
   FinancialTwin,
   RiskCalculationEvidence,
@@ -65,7 +66,7 @@ function makeEvidence(
     baselineValue,
     scenarioValue,
     result: true,
-    provenance: "COMPUTED",
+    provenance: Provenance.COMPUTED,
   };
   return { ...partial, evidenceId: evidenceId(partial) };
 }

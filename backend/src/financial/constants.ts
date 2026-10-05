@@ -1,13 +1,20 @@
-export const PROVENANCE_TYPES = [
-  "USER",
-  "COMPUTED",
-  "EXTERNAL",
-  "RETRIEVED",
-  "AI_INTERPRETATION",
-  "ASSUMPTION",
-] as const;
+/** Canonical origin labels shared by Financial Twin, scenarios, evidence, and AI output. */
+export const Provenance = {
+  USER: "USER",
+  COMPUTED: "COMPUTED",
+  EXTERNAL: "EXTERNAL",
+  RETRIEVED: "RETRIEVED",
+  AI_INTERPRETATION: "AI_INTERPRETATION",
+  ASSUMPTION: "ASSUMPTION",
+} as const;
 
-export type ProvenanceType = (typeof PROVENANCE_TYPES)[number];
+export type Provenance = (typeof Provenance)[keyof typeof Provenance];
+
+const provenanceValues: ReadonlySet<string> = new Set(Object.values(Provenance));
+
+export function isProvenance(value: unknown): value is Provenance {
+  return typeof value === "string" && provenanceValues.has(value);
+}
 
 export const GOAL_STATUSES = ["active", "completed", "paused"] as const;
 export type GoalStatus = (typeof GOAL_STATUSES)[number];

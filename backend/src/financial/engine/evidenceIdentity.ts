@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { Provenance } from "../constants.js";
 
 const EVIDENCE_DECIMAL_PRECISION = 16;
 const MAX_ABSOLUTE_EXPONENT = 10_000;
@@ -98,7 +99,7 @@ export interface CalculationEvidenceIdentityInput {
   baseline: unknown;
   scenario: unknown;
   result: boolean;
-  provenance: "COMPUTED";
+  provenance: typeof Provenance.COMPUTED;
 }
 
 /** Mirrors the Python reference's sorted, compact JSON identity payload. */

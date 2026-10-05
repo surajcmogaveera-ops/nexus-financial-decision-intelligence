@@ -1,4 +1,4 @@
-import { PROVENANCE_TYPES } from "./constants.js";
+import { Provenance } from "./constants.js";
 import { calculateFinancialMetrics } from "./engine/financialMetrics.js";
 import { calculateProfileRiskFlags } from "./engine/riskFlags.js";
 import type { ParsedFinancialTwinRequest } from "./schemas.js";
@@ -15,7 +15,7 @@ const ASSUMPTIONS = [
 export function calculateFinancialTwin(parsed: ParsedFinancialTwinRequest): FinancialTwin {
   const { profile, asOfDate } = parsed.request;
   const derived = calculateFinancialMetrics(profile, asOfDate);
-  const rawProvenance: Partial<Record<RawField, (typeof PROVENANCE_TYPES)[number]>> = {};
+  const rawProvenance: Partial<Record<RawField, Provenance>> = {};
   const rawFields: RawField[] = [
     "currency",
     "monthlyIncome",
@@ -31,16 +31,21 @@ export function calculateFinancialTwin(parsed: ParsedFinancialTwinRequest): Fina
     if (field === "essentialMonthlyExpenses" && profile.essentialMonthlyExpenses === undefined) {
       continue;
     }
-    rawProvenance[field] = parsed.suppliedFields.has(field) ? "USER" : "ASSUMPTION";
+    rawProvenance[field] = parsed.suppliedFields.has(field) ? Provenance.USER : Provenance.ASSUMPTION;
   }
 
   const derivedProvenance = Object.fromEntries(
-    Object.keys(derived).map((key) => [key, "COMPUTED"]),
-  ) as Record<DerivedMetric, "COMPUTED">;
+    Object.keys(derived).map((key) => [key, Provenance.COMPUTED]),
+  ) as Record<DerivedMetric, Extract<Provenance, "COMPUTED">>;
   const result: FinancialTwin = {
     raw: profile,
     derived,
-    provenance: { raw: rawProvenance, derived: derivedProvenance },
+    provenance: {
+      raw: rawProvenance,
+      derived: derivedProvenance,
+      goalFields: parsed.goalFieldProvenance,
+      assumptions: Provenance.ASSUMPTION,
+    },
     riskFlags: [],
     assumptions: [...ASSUMPTIONS],
     calculatedAt: new Date().toISOString(),

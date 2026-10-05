@@ -22,6 +22,7 @@ FastAPI AI service
 - **PostgreSQL:** Node + Prisma is the authoritative application persistence path. `DATABASE_URL` configures access. The initial migration `20261004120000_init_nexus_schema` has been applied and verified; database health checks use a real connection. No seed data is created by the application.
 - **Financial Engine:** The deterministic TypeScript implementation in the Node backend is the authoritative production calculation source. It recalculates derived metrics from validated raw financial inputs, uses decimal-string/BigInt arithmetic for money, and exposes explicit, deterministic risk flags with computed provenance. Python financial, goal, and risk engines are **LEGACY/REFERENCE** behavioral and parity oracles; Python is not an active production financial backend and these engines are not part of the AI service.
 - **Scenario Engine:** The in-memory deterministic implementation in the Node backend applies validated scenario transforms to cloned raw Financial Twin state, recalculates baseline and scenario using the same Financial Engine, then derives deltas, comparison/profile risk flags, provenance, and stable evidence. It does not persist scenario executions.
+- **Evidence and provenance:** Node's single application-level definition is `Provenance` in `backend/src/financial/constants.ts`. Provenance describes origin, not confidence or correctness. Raw user-supplied values are USER, deterministic metrics and scenario changes are COMPUTED, method conditions are explicitly listed ASSUMPTION, and the flagship AI wrapper labels generated prose AI_INTERPRETATION. EXTERNAL and RETRIEVED are reserved for data actually supplied by an authoritative external source or actually retrieved from a NEXUS corpus; neither is currently fabricated or populated.
 - **Simulation API:** `POST /api/simulations` completes its shared Node Simulation Service calculation before attempting optional AI explanation. Its top-level deterministic values remain authoritative, and an additive `ai` state reports `READY`, `NOT_CONFIGURED`, or `UNAVAILABLE`; classified AI-service failures never invalidate the simulation. The prior `POST /api/scenarios/simulate` route remains deterministic-only and keeps its Hour 6 response shape.
 - **Authentication:** Registration and login hash passwords with bcrypt and issue an eight-hour signed HttpOnly SameSite=Lax cookie. Middleware verifies the cookie and places the trusted subject in `req.auth.userId`. CORS only allows configured explicit origins and enables credentials for them; cookies are Secure in production.
 - **Owned Financial Twin and Goals APIs:** Protected Node routes derive ownership solely from the verified authenticated request context, then use profile/goal services and Prisma repositories scoped to that user. Client-supplied IDs never select an owner. Hour 8's development identity was removed; `NEXUS_DEV_USER_ID` is not used.
@@ -41,6 +42,25 @@ schemas/context → RAG boundary → retrieval boundary
 
 The subsystem modules provide typed interfaces and explicit unavailable/not-implemented results. Hour 12 wired the analysis endpoint to the prompt and Gemini boundaries: `schemas/context → prompts → Gemini provider → strict Pydantic validation → evidence/assumption checks → adapter → AiAnalysisResponse`. Gemini structured generation is implemented behind the existing `GeminiClient` protocol using schema-constrained output; the deterministic request objects stay separate from generated prose so model output cannot overwrite Node-owned values (`riskFlags`, `calculationVersion`, evidence IDs). RAG, retrieval, embeddings, and verification remain skeletons only. Prompt construction serializes the supplied Node context verbatim and instructs the model not to invent or recalculate financial facts. None of these modules performs financial calculations or accesses PostgreSQL.
 
+### Evidence and provenance contract
+
+| Provenance | Meaning |
+|---|---|
+| `USER` | Directly supplied by the user |
+| `COMPUTED` | Deterministically calculated by NEXUS |
+| `EXTERNAL` | Obtained from an external authoritative source |
+| `RETRIEVED` | Retrieved from an evidence/document corpus |
+| `AI_INTERPRETATION` | Generated interpretation from AI |
+| `ASSUMPTION` | Explicit modeling or system assumption |
+
+Provenance describes origin. It does not describe confidence or correctness. AI_INTERPRETATION is explanatory output, not authoritative financial data.
+
+The existing `RiskCalculationEvidence` model in `backend/src/financial/types.ts` is the canonical deterministic comparison evidence shape: metric, expression, baseline and scenario values, result, COMPUTED provenance, and stable `evidenceId`. Its identity comes from `backend/src/financial/engine/evidenceIdentity.ts`; canonical JSON sorts object keys, normalizes negative zero and trailing zeros, and rounds numeric evidence to 16 significant digits using ties-to-even before hashing. Financial formulas and displayed values are not changed by identity canonicalization.
+
+Financial Twin and scenario provenance is attached to raw fields, individual goal fields, derived metrics, and the explicit assumptions list. This distinguishes a supplied goal target from a defaulted zero return assumption. User request schemas reject caller-provided provenance. The Node → FastAPI validator rejects unknown labels, requires derived values to be COMPUTED and assumptions to be ASSUMPTION, and prevents AI_INTERPRETATION from entering raw financial state. Gemini's strict schema has no provenance field, and unknown fields are rejected. Node labels returned prose AI_INTERPRETATION; evidence references are still restricted to IDs supplied by Node.
+
+The FastAPI Pydantic provenance literals mirror the Node service-boundary values; the additive goal-field and assumptions provenance fields default compatibly for older internal clients. FastAPI also rejects AI_INTERPRETATION as provenance for raw financial data. Prisma's existing EvidenceSource, EvidenceDocument, and EvidenceChunk models remain unchanged. They provide future source/document/chunk identity but are not currently populated by ingestion, retrieval, or RAG, and no provenance migration is needed.
+
 ## Migration status
 
 ### IMPLEMENTED
@@ -50,6 +70,7 @@ The subsystem modules provide typed interfaces and explicit unavailable/not-impl
 - Temporary, request-based and in-memory `POST /api/financial-twin/recalculate`; it does not persist state.
 - In-memory deterministic `POST /api/scenarios/simulate` supporting investment contribution change, income shock, expense change, rent change, one-time emergency expense, monthly debt payment change, goal change, and explicitly unsupported market stress. It does not persist results.
 - In-memory `POST /api/simulations` with the same eight scenario contracts and response calculation version `1.0`. Node calculates only from the supplied raw baseline and remains authoritative; AI is attempted afterward. On expected AI-service failure the response retains all deterministic results and includes a machine-readable fallback state without inventing an explanation. It does not associate the calculation with an account or persist results.
+- Canonical Node provenance values and strict internal AI request provenance validation; deterministic evidence identity and its parity behavior are preserved.
 - PostgreSQL-backed `GET /api/financial-twin`, `GET /api/goals`, `POST /api/goals`, and ownership-scoped `PUT /api/goals/:id`. Goal and Financial Twin derived values are recalculated in memory through the existing deterministic engines; only raw goal values are written.
 - `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, and protected `GET /api/auth/me`; password hashing, signed cookie sessions, and authenticated ownership context.
 - Prisma 7.10.0 schema for the NEXUS application data model, initial PostgreSQL migration, shared client integration, and dependency-aware `GET /health/db`.

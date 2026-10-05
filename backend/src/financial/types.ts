@@ -1,7 +1,7 @@
 import type {
   GoalCalculationStatus,
   GoalStatus,
-  ProvenanceType,
+  Provenance,
   RiskSeverity,
   RiskType,
 } from "./constants.js";
@@ -83,7 +83,7 @@ export interface RiskCalculationEvidence {
   baselineValue: number | Money | boolean | null;
   scenarioValue: number | Money | boolean | null;
   result: boolean;
-  provenance: "COMPUTED";
+  provenance: Extract<Provenance, "COMPUTED">;
   evidenceId: string;
 }
 
@@ -99,8 +99,10 @@ export interface FinancialTwin {
   raw: FinancialProfile;
   derived: DerivedFinancialMetrics;
   provenance: {
-    raw: Partial<Record<RawField, ProvenanceType>>;
-    derived: Record<DerivedMetric, ProvenanceType>;
+    raw: Partial<Record<RawField, Provenance>>;
+    derived: Record<DerivedMetric, Extract<Provenance, "COMPUTED">>;
+    goalFields: Array<Partial<Record<keyof FinancialGoal, Provenance>>>;
+    assumptions: Extract<Provenance, "ASSUMPTION">;
   };
   riskFlags: RiskFlag[];
   assumptions: string[];

@@ -1,4 +1,5 @@
 import type { FinancialProfile, FinancialTwin, DerivedFinancialMetrics, RiskCalculationEvidence, RiskFlag, Money } from "../financial/types.js";
+import type { Provenance } from "../financial/constants.js";
 
 export const SCENARIO_TYPES = [
   "INVESTMENT_CHANGE",
@@ -28,6 +29,8 @@ export interface ScenarioState {
   provenance: {
     raw: FinancialTwin["provenance"]["raw"];
     derived: FinancialTwin["provenance"]["derived"];
+    goalFields: FinancialTwin["provenance"]["goalFields"];
+    assumptions: Extract<Provenance, "ASSUMPTION">;
   };
 }
 
@@ -61,6 +64,10 @@ export interface ScenarioResult {
   riskFlags: RiskFlag[];
   evidence: RiskCalculationEvidence[];
   assumptions: string[];
-  provenance: { scenarioTransform: "COMPUTED"; scenarioDerived: "COMPUTED" };
+  provenance: {
+    scenarioTransform: Extract<Provenance, "COMPUTED">;
+    scenarioDerived: Extract<Provenance, "COMPUTED">;
+    assumptions: Extract<Provenance, "ASSUMPTION">;
+  };
   calculatedAt: string;
 }

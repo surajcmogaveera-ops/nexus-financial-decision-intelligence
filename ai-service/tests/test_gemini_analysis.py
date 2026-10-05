@@ -196,6 +196,13 @@ def test_gemini_cannot_smuggle_risk_flags_field() -> None:
         )
 
 
+def test_gemini_cannot_claim_authoritative_provenance() -> None:
+    with pytest.raises(ValidationError):
+        GeminiStructuredAnalysis.model_validate(
+            {**structured_data(), "provenance": "COMPUTED"}
+        )
+
+
 def test_unknown_fields_become_invalid_output_end_to_end(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

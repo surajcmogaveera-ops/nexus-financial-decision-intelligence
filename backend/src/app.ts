@@ -12,6 +12,7 @@ import { ApiResourceError } from "./api/errors.js";
 import { AuthConfigurationError, AuthService, AuthServiceError } from "./auth/service.js";
 import { PrismaAuthUserRepository, type AuthUserRepository } from "./auth/repository.js";
 import { createAuthRouter } from "./auth/routes.js";
+import { AiServiceError } from "./ai/client.js";
 
 export interface AppDependencies {
   databaseHealthCheck?: () => Promise<void>;
@@ -95,6 +96,12 @@ export function createApp(dependencies: AppDependencies = {}): express.Express {
       return;
     }
     if (error instanceof AuthServiceError) {
+      response.status(error.status).json({
+        error: { code: error.code, message: error.message, details: {} },
+      });
+      return;
+    }
+    if (error instanceof AiServiceError) {
       response.status(error.status).json({
         error: { code: error.code, message: error.message, details: {} },
       });

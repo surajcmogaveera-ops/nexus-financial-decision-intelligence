@@ -3,25 +3,15 @@
 ## Target service boundaries
 
 ```text
-USER
-  ↓
-NEXT.JS FRONTEND
-  ↓
-NODE + EXPRESS BACKEND
-  ├── Prisma → PostgreSQL application data
-  ├── Financial Twin and deterministic Financial Engine
-  ├── Trusted user-context boundary for profile/goal APIs
-  ├── Scenario Engine
-  ├── Simulation Service and API
-  ├── Market-data integrations
-  └── Final application verification
-          ↓ Node-to-service API calls
-       FASTAPI AI SERVICE
-       ├── Document ingestion and chunking
-       ├── Retrieval and embeddings
-       ├── RAG
-       ├── Gemini orchestration
-       └── AI-specific structured-output validation
+Browser / Frontend
+        ↓ public application API only
+Node.js + Express
+  ├── PostgreSQL application data (Prisma)
+  ├── Financial Twin + deterministic Financial/Scenario Engines
+  └── internal AI client — X-Service-Token
+        ↓ POST /internal/ai/analyze
+FastAPI AI service
+  └── future Gemini / RAG / verification
 ```
 
 ## Ownership
@@ -34,9 +24,9 @@ NODE + EXPRESS BACKEND
 - **Simulation API:** `POST /api/simulations` delegates to a shared Node Simulation Service, which validates the request, invokes the existing Scenario Engine, and maps its result to the versioned API response. The prior `POST /api/scenarios/simulate` route uses the same service and keeps its Hour 6 response shape.
 - **Authentication:** Registration and login hash passwords with bcrypt and issue an eight-hour signed HttpOnly SameSite=Lax cookie. Middleware verifies the cookie and places the trusted subject in `req.auth.userId`. CORS only allows configured explicit origins and enables credentials for them; cookies are Secure in production.
 - **Owned Financial Twin and Goals APIs:** Protected Node routes derive ownership solely from the verified authenticated request context, then use profile/goal services and Prisma repositories scoped to that user. Client-supplied IDs never select an owner. Hour 8's development identity was removed; `NEXUS_DEV_USER_ID` is not used.
-- **FastAPI AI service:** Owns Gemini interaction, document ingestion, chunking, embeddings, retrieval, RAG, and AI-specific structured-output validation. It is the intelligence service, not a second production Financial Twin backend. It remains **SCAFFOLDED** with a health endpoint only.
+- **FastAPI AI service:** Owns future Gemini interaction, document ingestion, chunking, embeddings, retrieval, RAG, and AI-specific structured-output validation. It has no direct PostgreSQL access. The internal analysis endpoint currently validates the Node contract and returns an explicit placeholder only. It is not a second production Financial Twin backend.
 - **Verification:** Final business/application verification belongs to the Node backend. AI structured-output checks belong to the AI service. Current deterministic Python verification/evidence code remains **LEGACY/REFERENCE**.
-- **Node → FastAPI:** The Node backend will call the AI service through an internal API when a future application flow needs AI. There is no caller or AI feature yet.
+- **Node → FastAPI:** The server-side Node client calls `POST /internal/ai/analyze` with `X-Service-Token`; FastAPI rejects missing or invalid tokens. The frontend never receives the token and never calls FastAPI directly. Node supplies deterministic results for later explanation; FastAPI does not calculate financial metrics, scenario deltas, or risk flags.
 
 ## Migration status
 
@@ -50,13 +40,13 @@ NODE + EXPRESS BACKEND
 - PostgreSQL-backed `GET /api/financial-twin`, `GET /api/goals`, `POST /api/goals`, and ownership-scoped `PUT /api/goals/:id`. Goal and Financial Twin derived values are recalculated in memory through the existing deterministic engines; only raw goal values are written.
 - `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, and protected `GET /api/auth/me`; password hashing, signed cookie sessions, and authenticated ownership context.
 - Prisma 7.10.0 schema for the NEXUS application data model, initial PostgreSQL migration, shared client integration, and dependency-aware `GET /health/db`.
-- FastAPI scaffold and `GET /health` only.
+- Authenticated Node → FastAPI internal request/response contract and FastAPI `GET /health`; the analysis response is a deterministic non-AI placeholder.
 - Architecture documentation and target directories.
 
 ### SCAFFOLDED
 
 - Node backend module directories for configuration, middleware, routes, controllers, services, repositories, financial logic, scenarios, verification, AI calls, market data, validators, and tests. Financial Twin recalculation, owner-scoped Financial Twin reads, Goal CRUD limited to list/create/update, simulation, and health checks have behavior; user/profile CRUD and other application data CRUD do not.
-- AI-service directories for API, schemas, services, RAG, retrieval, embeddings, Gemini, verification, prompts, and core configuration.
+- AI-service API/schema scaffold. Gemini, RAG, retrieval, embeddings, and verification behavior remain unimplemented.
 - Empty Next.js frontend location.
 
 ### LEGACY/REFERENCE
@@ -66,7 +56,7 @@ NODE + EXPRESS BACKEND
 
 ### NOT YET IMPLEMENTED
 
-- Advanced account recovery, email verification, OAuth, MFA, user/profile CRUD, goal deletion and individual goal reads, persisted scenario definitions/results and simulations, Gemini, RAG, embeddings, market APIs, Node-to-FastAPI calls, and frontend product UI.
+- Advanced account recovery, email verification, OAuth, MFA, user/profile CRUD, goal deletion and individual goal reads, persisted scenario definitions/results and simulations, Gemini, RAG, embeddings, market APIs, public analysis API, and frontend product UI.
 
 Financial Twin recalculation remains request-based and non-persistent. The Python SQLAlchemy/Alembic layer is a legacy parity/reference artifact only; it is not the production persistence owner.
 

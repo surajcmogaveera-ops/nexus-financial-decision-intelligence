@@ -14,3 +14,4 @@ class GenerationRequest(StrictModel):
 class GenerationResult(ComponentResult):
     status: GenerationStatus
     text: str | None
+    model: str | None = None

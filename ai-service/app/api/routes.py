@@ -1,9 +1,18 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.auth import require_service_token
+from app.gemini.types import GenerationStatus
 from app.schemas.ai_analysis import AiAnalysisRequest, AiAnalysisResponse
+from app.services.analysis import run_analysis
 
 router = APIRouter()
+
+# Explicit failure mapping: provider problems are never converted into fake success.
+FAILURE_RESPONSE: dict[GenerationStatus, tuple[int, str]] = {
+    GenerationStatus.UNAVAILABLE: (503, "AI_GENERATION_UNAVAILABLE"),
+    GenerationStatus.INVALID_OUTPUT: (502, "AI_INVALID_OUTPUT"),
+    GenerationStatus.ERROR: (500, "AI_GENERATION_ERROR"),
+}
 
 
 @router.get("/health")
@@ -16,9 +25,23 @@ def health() -> dict[str, str]:
     response_model=AiAnalysisResponse,
     dependencies=[Depends(require_service_token)],
 )
-def analyze(request: AiAnalysisRequest) -> AiAnalysisResponse:
-    """Contract placeholder; deterministic calculations remain in the Node service."""
-    return create_placeholder_response(request)
+async def analyze(request: AiAnalysisRequest) -> AiAnalysisResponse:
+    """Explain supplied Node results; deterministic calculations remain in Node."""
+    return await run_analysis_request(request)
+
+
+async def run_analysis_request(request: AiAnalysisRequest) -> AiAnalysisResponse:
+    outcome = await run_analysis(request)
+    if outcome.status is GenerationStatus.READY and outcome.response is not None:
+        return outcome.response
+    if outcome.status in (GenerationStatus.NOT_CONFIGURED, GenerationStatus.NOT_IMPLEMENTED):
+        # No usable Gemini configuration: keep the explicit contract placeholder.
+        return create_placeholder_response(request)
+    status_code, code = FAILURE_RESPONSE.get(outcome.status, (500, "AI_GENERATION_ERROR"))
+    raise HTTPException(
+        status_code=status_code,
+        detail={"code": code, "message": "The AI explanation could not be generated."},
+    )
 
 
 def create_placeholder_response(request: AiAnalysisRequest) -> AiAnalysisResponse:
@@ -28,10 +51,12 @@ def create_placeholder_response(request: AiAnalysisRequest) -> AiAnalysisRespons
         summary=None,
         keyChanges=[],
         tradeoffs=[],
-        riskFlags=[],
+        # Risk flags are deterministic Node output and remain authoritative
+        # even when explanation generation is not configured.
+        riskFlags=list(request.riskFlags),
         evidenceRefs=[],
         assumptions=[],
-        limitations=["AI explanation service is not implemented yet."],
+        limitations=["AI explanation is unavailable because Gemini is not configured."],
         model=None,
         promptVersion=None,
         calculationVersion=request.calculationVersion,

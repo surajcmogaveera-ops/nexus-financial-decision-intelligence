@@ -12,3 +12,12 @@ class PromptBuilder:
             instruction=ANALYSIS_INSTRUCTION,
             context_json=context.model_dump_json(),
         )
+
+    def build_generation_prompt(self, prompt: PromptRequest) -> str:
+        """Compose the provider prompt; the deterministic context is passed through verbatim."""
+        return (
+            f"{prompt.instruction}\n\n"
+            "AUTHORITATIVE INPUT (Node.js deterministic results, JSON):\n"
+            f"{prompt.context_json}\n\n"
+            "Return only the requested structured JSON analysis."
+        )

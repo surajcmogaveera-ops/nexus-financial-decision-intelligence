@@ -18,7 +18,7 @@ test("Node calls the real authenticated FastAPI endpoint", { skip: probe.error |
   const serviceToken = "nexus-hour10-controlled-integration-token";
   const child = spawn(python, ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", String(port), "--log-level", "critical"], {
     cwd,
-    env: { ...process.env, SERVICE_TOKEN: serviceToken },
+    env: { ...process.env, SERVICE_TOKEN: serviceToken, GEMINI_API_KEY: "" },
     stdio: "ignore",
   });
 
@@ -35,7 +35,8 @@ test("Node calls the real authenticated FastAPI endpoint", { skip: probe.error |
     const accepted = await new AiServiceClient({ serviceUrl: baseUrl, serviceToken }).analyze(request);
     assert.equal(accepted.requestId, request.requestId);
     assert.equal(accepted.status, "READY");
-    assert.match(accepted.limitations[0], /not implemented/i);
+    assert.match(accepted.limitations[0], /Gemini is not configured/i);
+    assert.deepEqual(accepted.riskFlags, request.riskFlags);
 
     const rejected = new AiServiceClient({ serviceUrl: baseUrl, serviceToken: "incorrect-controlled-token" });
     await assert.rejects(rejected.analyze(request), (error) => error instanceof AiServiceError && error.code === "AI_SERVICE_UNAUTHORIZED");

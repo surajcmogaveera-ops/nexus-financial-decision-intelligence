@@ -11,7 +11,8 @@ Node.js + Express
   └── internal AI client — X-Service-Token
         ↓ POST /internal/ai/analyze
 FastAPI AI service
-  └── future Gemini / RAG / verification
+  ├── Gemini structured explanation (implemented)
+  └── future RAG / retrieval / embeddings / verification
 ```
 
 ## Ownership
@@ -24,7 +25,7 @@ FastAPI AI service
 - **Simulation API:** `POST /api/simulations` delegates to a shared Node Simulation Service, which validates the request, invokes the existing Scenario Engine, and maps its result to the versioned API response. The prior `POST /api/scenarios/simulate` route uses the same service and keeps its Hour 6 response shape.
 - **Authentication:** Registration and login hash passwords with bcrypt and issue an eight-hour signed HttpOnly SameSite=Lax cookie. Middleware verifies the cookie and places the trusted subject in `req.auth.userId`. CORS only allows configured explicit origins and enables credentials for them; cookies are Secure in production.
 - **Owned Financial Twin and Goals APIs:** Protected Node routes derive ownership solely from the verified authenticated request context, then use profile/goal services and Prisma repositories scoped to that user. Client-supplied IDs never select an owner. Hour 8's development identity was removed; `NEXUS_DEV_USER_ID` is not used.
-- **FastAPI AI service:** Owns future Gemini interaction, document ingestion, chunking, embeddings, retrieval, RAG, and AI-specific structured-output validation. It has no direct PostgreSQL access. The internal analysis endpoint currently validates the Node contract and returns an explicit placeholder only. It is not a second production Financial Twin backend.
+- **FastAPI AI service:** Owns Gemini interaction, AI-specific structured-output validation, and future document ingestion, chunking, embeddings, retrieval, and RAG. It has no direct PostgreSQL access. The internal analysis endpoint validates the Node contract and, when `GEMINI_API_KEY` is configured, runs Gemini structured JSON generation (official Google GenAI SDK, Pydantic-validated) through an adapter onto the unchanged Node response contract; without configuration it returns the explicit not-configured placeholder, and provider failures map to explicit 502/503/500 errors instead of fabricated output. It is not a second production Financial Twin backend.
 - **Verification:** Final business/application verification belongs to the Node backend. AI structured-output checks belong to the AI service. Current deterministic Python verification/evidence code remains **LEGACY/REFERENCE**.
 - **Node → FastAPI:** The server-side Node client calls `POST /internal/ai/analyze` with `X-Service-Token`; FastAPI rejects missing or invalid tokens. The frontend never receives the token and never calls FastAPI directly. Node supplies deterministic results for later explanation; FastAPI does not calculate financial metrics, scenario deltas, or risk flags.
 
@@ -38,7 +39,7 @@ schemas/context → RAG boundary → retrieval boundary
       prompts → Gemini provider boundary → verification boundary
 ```
 
-The Hour 11 modules provide typed interfaces and explicit unavailable/not-implemented results. The analysis endpoint does not invoke them yet and retains the Hour 10 placeholder response. Gemini, RAG, retrieval, embeddings, and verification are skeletons only. Prompt construction serializes the supplied Node context and instructs a future model not to invent or recalculate financial facts. None of these modules performs financial calculations or accesses PostgreSQL.
+The subsystem modules provide typed interfaces and explicit unavailable/not-implemented results. Hour 12 wired the analysis endpoint to the prompt and Gemini boundaries: `schemas/context → prompts → Gemini provider → strict Pydantic validation → evidence/assumption checks → adapter → AiAnalysisResponse`. Gemini structured generation is implemented behind the existing `GeminiClient` protocol using schema-constrained output; the deterministic request objects stay separate from generated prose so model output cannot overwrite Node-owned values (`riskFlags`, `calculationVersion`, evidence IDs). RAG, retrieval, embeddings, and verification remain skeletons only. Prompt construction serializes the supplied Node context verbatim and instructs the model not to invent or recalculate financial facts. None of these modules performs financial calculations or accesses PostgreSQL.
 
 ## Migration status
 
@@ -52,13 +53,14 @@ The Hour 11 modules provide typed interfaces and explicit unavailable/not-implem
 - PostgreSQL-backed `GET /api/financial-twin`, `GET /api/goals`, `POST /api/goals`, and ownership-scoped `PUT /api/goals/:id`. Goal and Financial Twin derived values are recalculated in memory through the existing deterministic engines; only raw goal values are written.
 - `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, and protected `GET /api/auth/me`; password hashing, signed cookie sessions, and authenticated ownership context.
 - Prisma 7.10.0 schema for the NEXUS application data model, initial PostgreSQL migration, shared client integration, and dependency-aware `GET /health/db`.
-- Authenticated Node → FastAPI internal request/response contract and FastAPI `GET /health`; the analysis response is a deterministic non-AI placeholder.
+- Authenticated Node → FastAPI internal request/response contract and FastAPI `GET /health`; the analysis endpoint runs Gemini structured explanation over supplied Node results when configured and returns an explicit non-AI placeholder otherwise.
+- Real Gemini structured explanation inside the FastAPI AI service: strict `GeminiStructuredAnalysis` Pydantic output schema (summary, whatChanged, tradeoffs, risks, evidenceRefs, assumptions, limitations, confidence, disclaimer), official `google-genai` SDK with `response_schema` JSON output, prompt instructions separating authoritative Node input from AI interpretation, adapter onto the unchanged Node `AiAnalysisResponse` contract, `evidenceRefs`/assumptions validated against supplied Node data, deterministic `riskFlags` preserved verbatim, explicit `NOT_CONFIGURED`/`UNAVAILABLE`/`INVALID_OUTPUT`/`ERROR` failure states, and mocked-provider tests plus an opt-in `NEXUS_LIVE_GEMINI_TEST=true` live test.
 - Architecture documentation and target directories.
 
 ### SCAFFOLDED
 
 - Node backend module directories for configuration, middleware, routes, controllers, services, repositories, financial logic, scenarios, verification, AI calls, market data, validators, and tests. Financial Twin recalculation, owner-scoped Financial Twin reads, Goal CRUD limited to list/create/update, simulation, and health checks have behavior; user/profile CRUD and other application data CRUD do not.
-- AI-service API/schema scaffold. Gemini, RAG, retrieval, embeddings, and verification behavior remain unimplemented.
+- AI-service API/schema scaffold. RAG, retrieval, embeddings, and verification behavior remain unimplemented.
 - Empty Next.js frontend location.
 
 ### LEGACY/REFERENCE
@@ -68,7 +70,7 @@ The Hour 11 modules provide typed interfaces and explicit unavailable/not-implem
 
 ### NOT YET IMPLEMENTED
 
-- Advanced account recovery, email verification, OAuth, MFA, user/profile CRUD, goal deletion and individual goal reads, persisted scenario definitions/results and simulations, Gemini, RAG, embeddings, market APIs, public analysis API, and frontend product UI.
+- Advanced account recovery, email verification, OAuth, MFA, user/profile CRUD, goal deletion and individual goal reads, persisted scenario definitions/results and simulations, RAG, embeddings execution, market APIs, public analysis API, and frontend product UI.
 
 Financial Twin recalculation remains request-based and non-persistent. The Python SQLAlchemy/Alembic layer is a legacy parity/reference artifact only; it is not the production persistence owner.
 

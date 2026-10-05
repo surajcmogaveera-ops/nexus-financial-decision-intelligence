@@ -28,6 +28,18 @@ FastAPI AI service
 - **Verification:** Final business/application verification belongs to the Node backend. AI structured-output checks belong to the AI service. Current deterministic Python verification/evidence code remains **LEGACY/REFERENCE**.
 - **Node → FastAPI:** The server-side Node client calls `POST /internal/ai/analyze` with `X-Service-Token`; FastAPI rejects missing or invalid tokens. The frontend never receives the token and never calls FastAPI directly. Node supplies deterministic results for later explanation; FastAPI does not calculate financial metrics, scenario deltas, or risk flags.
 
+### FastAPI AI-service module boundaries
+
+```text
+Node-produced AI analysis context
+        ↓
+schemas/context → RAG boundary → retrieval boundary
+        ↓                       evidence refs (future)
+      prompts → Gemini provider boundary → verification boundary
+```
+
+The Hour 11 modules provide typed interfaces and explicit unavailable/not-implemented results. The analysis endpoint does not invoke them yet and retains the Hour 10 placeholder response. Gemini, RAG, retrieval, embeddings, and verification are skeletons only. Prompt construction serializes the supplied Node context and instructs a future model not to invent or recalculate financial facts. None of these modules performs financial calculations or accesses PostgreSQL.
+
 ## Migration status
 
 ### IMPLEMENTED

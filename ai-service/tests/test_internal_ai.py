@@ -15,8 +15,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     return TestClient(app)
 
 
-@pytest.fixture
-def valid_payload() -> dict:
+def valid_payload_data() -> dict:
     raw = {
         "currency": "INR",
         "monthlyIncome": "30000",
@@ -76,6 +75,11 @@ def valid_payload() -> dict:
         "evidence": [],
         "calculationVersion": "1.0",
     }
+
+
+@pytest.fixture
+def valid_payload() -> dict:
+    return valid_payload_data()
 
 
 def test_correct_service_token_returns_contract_placeholder(client: TestClient, valid_payload: dict) -> None:

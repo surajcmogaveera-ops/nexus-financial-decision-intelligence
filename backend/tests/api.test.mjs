@@ -325,9 +325,9 @@ test("invalid inputs return a structured validation error without a stack trace"
   assert.equal("stack" in body.error, false);
 });
 
-test("contract-only routes are clearly not implemented", async () => {
+test("goal routes require a trusted development identity", async () => {
   const response = await fetch(`${baseUrl}/api/goals`);
-  assert.equal(response.status, 404);
-  assert.equal((await response.json()).error.code, "NOT_IMPLEMENTED");
+  assert.equal(response.status, 401);
+  assert.equal((await response.json()).error.code, "AUTHENTICATION_REQUIRED");
 });
 

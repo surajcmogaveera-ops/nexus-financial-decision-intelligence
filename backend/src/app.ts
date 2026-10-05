@@ -5,14 +5,23 @@ import { checkDatabaseConnection } from "./db/prisma.js";
 import { scenarioRouter } from "./scenarios/routes.js";
 import { simulationRouter } from "./simulations/routes.js";
 import { SimulationServiceError } from "./simulations/schemas.js";
+import { createDevelopmentIdentityResolver, type UserContextResolver } from "./auth/context.js";
+import { PrismaFinancialDataRepository, type FinancialDataRepository } from "./financial/profileRepository.js";
+import { createFinancialTwinReadRouter } from "./financial/routes.js";
+import { createGoalsRouter } from "./goals/routes.js";
+import { ApiResourceError } from "./api/errors.js";
 
 export interface AppDependencies {
   databaseHealthCheck?: () => Promise<void>;
+  userContextResolver?: UserContextResolver;
+  financialDataRepository?: FinancialDataRepository;
 }
 
 export function createApp(dependencies: AppDependencies = {}): express.Express {
   const app = express();
   const databaseHealthCheck = dependencies.databaseHealthCheck ?? checkDatabaseConnection;
+  const financialDataRepository = dependencies.financialDataRepository ?? new PrismaFinancialDataRepository();
+  const userContextResolver = dependencies.userContextResolver ?? createDevelopmentIdentityResolver();
   app.use(express.json({ limit: "64kb", strict: true }));
 
   app.get("/health", (_request, response) => {
@@ -33,6 +42,8 @@ export function createApp(dependencies: AppDependencies = {}): express.Express {
     }
   });
   app.use("/api/financial-twin", financialTwinRouter);
+  app.use("/api/financial-twin", createFinancialTwinReadRouter(financialDataRepository, userContextResolver));
+  app.use("/api/goals", createGoalsRouter(financialDataRepository, userContextResolver));
   app.use("/api/scenarios", scenarioRouter);
   app.use("/api/simulations", simulationRouter);
 
@@ -52,6 +63,12 @@ export function createApp(dependencies: AppDependencies = {}): express.Express {
   });
 
   const errorHandler: ErrorRequestHandler = (error: unknown, _request, response, _next) => {
+    if (error instanceof ApiResourceError) {
+      response.status(error.status).json({
+        error: { code: error.code, message: error.message, details: error.details },
+      });
+      return;
+    }
     if (error instanceof SimulationServiceError) {
       response.status(error.status).json({
         error: { code: error.code, message: error.message, details: error.details },

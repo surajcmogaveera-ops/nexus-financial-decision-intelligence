@@ -89,8 +89,7 @@ function optionalHorizon(value: unknown, field: string): number | undefined {
   return value as number;
 }
 
-function parseGoal(value: unknown, index: number): FinancialGoal {
-  const path = `profile.goals[${index}]`;
+function parseGoalValue(value: unknown, path: string): FinancialGoal {
   if (!isObject(value)) {
     throw new InputValidationError("Each goal must be an object", {
       [path]: "Expected a structured goal object",
@@ -178,6 +177,15 @@ function parseGoal(value: unknown, index: number): FinancialGoal {
     priority: priority as number,
     status: status as FinancialGoal["status"],
   };
+}
+
+function parseGoal(value: unknown, index: number): FinancialGoal {
+  return parseGoalValue(value, `profile.goals[${index}]`);
+}
+
+/** Reuse the Financial Twin goal validation rules for persistence-backed goal APIs. */
+export function parseFinancialGoal(value: unknown, field = "goal"): FinancialGoal {
+  return parseGoalValue(value, field);
 }
 
 export function parseFinancialTwinRequest(body: unknown): ParsedFinancialTwinRequest {

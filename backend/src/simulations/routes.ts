@@ -1,13 +1,18 @@
 import { Router } from "express";
-import { simulate } from "./service.js";
+import { AiServiceClient } from "../ai/client.js";
+import { simulateWithAi } from "./service.js";
 
-export const simulationRouter = Router();
+export function createSimulationRouter(aiServiceClient: Pick<AiServiceClient, "analyze"> = new AiServiceClient()) {
+  const simulationRouter = Router();
 
-simulationRouter.post("/", (request, response, next) => {
-  try {
-    response.status(200).json(simulate(request.body));
-  } catch (error) {
-    next(error);
-  }
-});
+  simulationRouter.post("/", async (request, response, next) => {
+    try {
+      response.status(200).json(await simulateWithAi(request.body, aiServiceClient));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  return simulationRouter;
+}
 

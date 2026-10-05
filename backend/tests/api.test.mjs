@@ -175,7 +175,7 @@ test("POST /api/simulations returns the versioned flagship response and matches 
   });
   assert.equal(response.status, 200);
   const result = await response.json();
-  assert.deepEqual(Object.keys(result).sort(), ["assumptions", "baseline", "calculationVersion", "delta", "riskFlags", "scenario"].sort());
+  assert.deepEqual(Object.keys(result).sort(), ["ai", "assumptions", "baseline", "calculationVersion", "delta", "riskFlags", "scenario"].sort());
   assert.equal(result.calculationVersion, "1.0");
   assert.equal(result.baseline.derived.monthlySurplus, "10000");
   assert.equal(result.baseline.derived.goals[0].projectedAmount, "160000");
@@ -195,7 +195,11 @@ test("POST /api/simulations returns the versioned flagship response and matches 
     parseFinancialTwinRequest({ profile: requestBody.baseline, asOfDate: requestBody.asOfDate }),
     parseScenarioInput(requestBody.scenario),
   );
-  assert.deepEqual(result, mapScenarioResultToSimulationResponse(direct));
+  const { ai, ...deterministicResult } = result;
+  assert.deepEqual(deterministicResult, mapScenarioResultToSimulationResponse(direct));
+  assert.equal(ai.status, "NOT_CONFIGURED");
+  assert.equal(ai.explanation, null);
+  assert.equal(ai.message, "AI explanation unavailable.");
 });
 
 test("simulation API handles all eight scenario types consistently, including unsupported market stress", async () => {

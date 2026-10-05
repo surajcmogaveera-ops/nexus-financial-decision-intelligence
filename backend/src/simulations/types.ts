@@ -1,6 +1,7 @@
 import type { DerivedFinancialMetrics, FinancialProfile, FinancialTwin, RiskCalculationEvidence, RiskFlag } from "../financial/types.js";
 import type { ScenarioDelta, ScenarioInput, ScenarioState, ScenarioType } from "../scenarios/types.js";
 import type { CALCULATION_VERSION } from "./constants.js";
+import type { AiAnalysisResponse } from "../ai/types.js";
 
 export type BaselineRequestField = "baseline" | "profile";
 
@@ -27,6 +28,15 @@ export interface SimulationResponse {
   riskFlags: RiskFlag[];
   assumptions: string[];
   calculationVersion: typeof CALCULATION_VERSION;
+}
+
+export type SimulationAiResult =
+  | { status: "READY"; explanation: AiAnalysisResponse; message: null }
+  | { status: "NOT_CONFIGURED" | "UNAVAILABLE"; explanation: null; message: "AI explanation unavailable." };
+
+/** Flagship response: the deterministic simulation remains top-level and authoritative. */
+export interface SimulationWithAiResponse extends SimulationResponse {
+  ai: SimulationAiResult;
 }
 
 export interface ValidatedSimulationRequest {

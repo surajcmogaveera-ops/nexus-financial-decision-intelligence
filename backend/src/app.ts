@@ -3,7 +3,7 @@ import { InputValidationError } from "./financial/schemas.js";
 import { financialTwinRouter } from "./financial/routes.js";
 import { checkDatabaseConnection } from "./db/prisma.js";
 import { scenarioRouter } from "./scenarios/routes.js";
-import { simulationRouter } from "./simulations/routes.js";
+import { createSimulationRouter } from "./simulations/routes.js";
 import { SimulationServiceError } from "./simulations/schemas.js";
 import { PrismaFinancialDataRepository, type FinancialDataRepository } from "./financial/profileRepository.js";
 import { createFinancialTwinReadRouter } from "./financial/routes.js";
@@ -13,12 +13,14 @@ import { AuthConfigurationError, AuthService, AuthServiceError } from "./auth/se
 import { PrismaAuthUserRepository, type AuthUserRepository } from "./auth/repository.js";
 import { createAuthRouter } from "./auth/routes.js";
 import { AiServiceError } from "./ai/client.js";
+import type { AiServiceClient } from "./ai/client.js";
 
 export interface AppDependencies {
   databaseHealthCheck?: () => Promise<void>;
   financialDataRepository?: FinancialDataRepository;
   authUserRepository?: AuthUserRepository;
   authService?: AuthService;
+  aiServiceClient?: Pick<AiServiceClient, "analyze">;
 }
 
 export function assertFrontendOriginConfiguration(
@@ -71,7 +73,7 @@ export function createApp(dependencies: AppDependencies = {}): express.Express {
   app.use("/api/financial-twin", createFinancialTwinReadRouter(financialDataRepository, auth));
   app.use("/api/goals", createGoalsRouter(financialDataRepository, auth));
   app.use("/api/scenarios", scenarioRouter);
-  app.use("/api/simulations", simulationRouter);
+  app.use("/api/simulations", createSimulationRouter(dependencies.aiServiceClient));
 
   app.use("/api", (request, response) => {
     response.status(404).json({

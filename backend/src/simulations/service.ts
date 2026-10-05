@@ -1,8 +1,10 @@
 import { runScenario } from "../scenarios/engine.js";
 import type { ScenarioResult } from "../scenarios/types.js";
+import { AiServiceClient, AiServiceError } from "../ai/client.js";
+import { createAiAnalysisRequest, type AiAnalysisResponse } from "../ai/types.js";
 import { CALCULATION_VERSION } from "./constants.js";
 import { SimulationServiceError, validateSimulationRequest } from "./schemas.js";
-import type { BaselineRequestField, SimulationResponse } from "./types.js";
+import type { BaselineRequestField, SimulationResponse, SimulationWithAiResponse } from "./types.js";
 
 /** Shared orchestration entry point used by both simulation HTTP routes. */
 export function executeSimulation(
@@ -47,4 +49,43 @@ export function mapScenarioResultToSimulationResponse(result: ScenarioResult): S
 
 export function simulate(request: unknown): SimulationResponse {
   return mapScenarioResultToSimulationResponse(executeSimulation(request));
+}
+
+/**
+ * Runs the authoritative deterministic calculation first, then requests an
+ * optional explanation. Only classified AI-service failures become fallback
+ * states; deterministic, programming, and invariant errors still propagate.
+ */
+export async function simulateWithAi(
+  request: unknown,
+  aiClient: Pick<AiServiceClient, "analyze"> = new AiServiceClient(),
+): Promise<SimulationWithAiResponse> {
+  const simulation = simulate(request);
+  try {
+    const explanation = await aiClient.analyze(
+      createAiAnalysisRequest("Explain the deterministic simulation consequences.", simulation),
+    );
+    if (isNotConfiguredResponse(explanation)) {
+      return { ...simulation, ai: unavailableAi("NOT_CONFIGURED") };
+    }
+    return { ...simulation, ai: { status: "READY", explanation, message: null } };
+  } catch (error) {
+    if (!(error instanceof AiServiceError) || error.code === "INVALID_AI_REQUEST") {
+      throw error;
+    }
+    return {
+      ...simulation,
+      ai: unavailableAi(error.code === "AI_SERVICE_NOT_CONFIGURED" ? "NOT_CONFIGURED" : "UNAVAILABLE"),
+    };
+  }
+}
+
+function isNotConfiguredResponse(response: AiAnalysisResponse): boolean {
+  // FastAPI retains the Hour 12 response contract and represents absent Gemini
+  // configuration with its explicit null/empty placeholder response.
+  return response.summary === null && response.model === null && response.promptVersion === null;
+}
+
+function unavailableAi(status: "NOT_CONFIGURED" | "UNAVAILABLE") {
+  return { status, explanation: null, message: "AI explanation unavailable." } as const;
 }

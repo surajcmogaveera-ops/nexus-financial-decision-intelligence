@@ -3,9 +3,17 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.api.auth import require_service_token
 from app.gemini.types import GenerationStatus
 from app.schemas.ai_analysis import AiAnalysisRequest, AiAnalysisResponse
+from app.embeddings.provider import create_embedding_provider
+from app.embeddings.types import EmbeddingRequest, EmbeddingResult
 from app.services.analysis import run_analysis
 
 router = APIRouter()
+
+
+@router.post("/internal/ai/embed", response_model=EmbeddingResult, dependencies=[Depends(require_service_token)])
+async def embed(request: EmbeddingRequest) -> EmbeddingResult:
+    """Protected embedding utility. It has no database or retrieval access."""
+    return await create_embedding_provider().embed(request)
 
 # Explicit failure mapping: provider problems are never converted into fake success.
 FAILURE_RESPONSE: dict[GenerationStatus, tuple[int, str]] = {

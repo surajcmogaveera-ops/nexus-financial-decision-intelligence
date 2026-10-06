@@ -203,6 +203,19 @@ class AiAnalysisRequest(StrictModel):
     assumptions: list[str]
     evidence: list[RiskEvidence]
     calculationVersion: Literal["1.0"]
+    retrievedContext: list["RetrievedContextItem"] = Field(default_factory=list, max_length=10)
+
+
+class RetrievedContextItem(StrictModel):
+    chunkId: str = Field(min_length=1, max_length=100)
+    documentId: str = Field(min_length=1, max_length=100)
+    title: str = Field(min_length=1, max_length=500)
+    topic: str = Field(min_length=1, max_length=100)
+    content: str = Field(min_length=1, max_length=20_000)
+    sourceId: str = Field(min_length=1, max_length=100)
+    sourceType: str = Field(min_length=1, max_length=50)
+    sourceUrl: str | None = Field(default=None, max_length=2000)
+    provenance: Literal["ASSUMPTION", "EXTERNAL"]
 
 
 class AiAnalysisResponse(StrictModel):

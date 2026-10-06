@@ -96,7 +96,13 @@ export class AiServiceClient {
     let body: unknown;
     try {
       body = await upstream.json();
-      return parseAiAnalysisResponse(body, request.requestId);
+      const evidenceIds = new Set([
+        ...request.evidence.map((item) => item.evidenceId),
+        ...request.baseline.evidence.map((item) => item.evidenceId),
+        ...request.scenario.evidence.map((item) => item.evidenceId),
+        ...request.retrievedContext.map((item) => item.chunkId),
+      ]);
+      return parseAiAnalysisResponse(body, request.requestId, evidenceIds);
     } catch (error) {
       if (error instanceof AiContractValidationError) {
         throw new AiServiceError("AI_SERVICE_INVALID_RESPONSE", "The internal AI service returned an invalid response.");

@@ -3,6 +3,7 @@ import type { DerivedFinancialMetrics, FinancialProfile, FinancialTwin, RiskCalc
 import type { ScenarioDelta } from "../scenarios/types.js";
 import type { SimulationResponse } from "../simulations/types.js";
 import { CALCULATION_VERSION } from "../simulations/constants.js";
+import type { RetrievedContextItem } from "../rag/types.js";
 
 export interface AiFinancialTwinContext {
   raw: FinancialProfile;
@@ -21,6 +22,7 @@ export interface AiAnalysisRequest {
   assumptions: string[];
   evidence: RiskCalculationEvidence[];
   calculationVersion: typeof CALCULATION_VERSION;
+  retrievedContext: RetrievedContextItem[];
 }
 
 export interface AiAnalysisResponse {
@@ -43,6 +45,7 @@ export function createAiAnalysisRequest(
   question: string,
   result: SimulationResponse,
   requestId = randomUUID(),
+  retrievedContext: RetrievedContextItem[] = [],
 ): AiAnalysisRequest {
   return {
     requestId,
@@ -59,5 +62,6 @@ export function createAiAnalysisRequest(
     assumptions: result.assumptions,
     evidence: result.scenario.evidence,
     calculationVersion: CALCULATION_VERSION,
+    retrievedContext,
   };
 }

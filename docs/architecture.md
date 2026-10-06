@@ -12,7 +12,7 @@ Node.js + Express
         ↓ POST /internal/ai/analyze
 FastAPI AI service
   ├── Gemini structured explanation (implemented)
-  └── future RAG / retrieval / embeddings / verification
+  └── Node-owned PostgreSQL FTS + optional pgvector retrieval → request-scoped AI grounding
 ```
 
 ## Ownership
@@ -26,7 +26,7 @@ FastAPI AI service
 - **Simulation API:** `POST /api/simulations` completes its shared Node Simulation Service calculation before attempting optional AI explanation. Its top-level deterministic values remain authoritative, and an additive `ai` state reports `READY`, `NOT_CONFIGURED`, or `UNAVAILABLE`; classified AI-service failures never invalidate the simulation. The prior `POST /api/scenarios/simulate` route remains deterministic-only and keeps its Hour 6 response shape.
 - **Authentication:** Registration and login hash passwords with bcrypt and issue an eight-hour signed HttpOnly SameSite=Lax cookie. Middleware verifies the cookie and places the trusted subject in `req.auth.userId`. CORS only allows configured explicit origins and enables credentials for them; cookies are Secure in production.
 - **Owned Financial Twin and Goals APIs:** Protected Node routes derive ownership solely from the verified authenticated request context, then use profile/goal services and Prisma repositories scoped to that user. Client-supplied IDs never select an owner. Hour 8's development identity was removed; `NEXUS_DEV_USER_ID` is not used.
-- **FastAPI AI service:** Owns Gemini interaction, AI-specific structured-output validation, and future document ingestion, chunking, embeddings, retrieval, and RAG. It has no direct PostgreSQL access. The internal analysis endpoint validates the Node contract and, when `GEMINI_API_KEY` is configured, runs Gemini structured JSON generation (official Google GenAI SDK, Pydantic-validated) through an adapter onto the unchanged Node response contract; without configuration it returns the explicit not-configured placeholder, and provider failures map to explicit 502/503/500 errors instead of fabricated output. It is not a second production Financial Twin backend.
+- **FastAPI AI service:** Owns Gemini interaction, structured analysis, and the embedding provider utility. It has no PostgreSQL access and receives only selected chunks in Node's analysis request. The protected embedding operation returns a vector to Node and does not query or persist anything. Gemini is configured by `GEMINI_API_KEY`; embeddings use `GEMINI_EMBEDDING_MODEL` (default `gemini-embedding-001`) at 768 dimensions. Provider failures stay explicit and no vectors are fabricated.
 - **Verification:** Final business/application verification belongs to the Node backend. AI structured-output checks belong to the AI service. Current deterministic Python verification/evidence code remains **LEGACY/REFERENCE**.
 - **Node → FastAPI:** The server-side Node client calls `POST /internal/ai/analyze` with `X-Service-Token`; FastAPI rejects missing or invalid tokens. The frontend never receives the token and never calls FastAPI directly. Node supplies deterministic results for later explanation; FastAPI does not calculate financial metrics, scenario deltas, or risk flags.
 
@@ -40,7 +40,9 @@ schemas/context → RAG boundary → retrieval boundary
       prompts → Gemini provider boundary → verification boundary
 ```
 
-The subsystem modules provide typed interfaces and explicit unavailable/not-implemented results. Hour 12 wired the analysis endpoint to the prompt and Gemini boundaries: `schemas/context → prompts → Gemini provider → strict Pydantic validation → evidence/assumption checks → adapter → AiAnalysisResponse`. Gemini structured generation is implemented behind the existing `GeminiClient` protocol using schema-constrained output; the deterministic request objects stay separate from generated prose so model output cannot overwrite Node-owned values (`riskFlags`, `calculationVersion`, evidence IDs). RAG, retrieval, embeddings, and verification remain skeletons only. Prompt construction serializes the supplied Node context verbatim and instructs the model not to invent or recalculate financial facts. None of these modules performs financial calculations or accesses PostgreSQL.
+Hour 17 adds a small retrieval MVP to existing evidence storage. The eight internally authored corpus entries are explicitly `ASSUMPTION`, carry no fabricated external URL, and are loaded idempotently with `pnpm build` then `pnpm rag:ingest` from `backend/`. Prisma remains the only ORM. A GIN expression index supports PostgreSQL English full-text search; an optional pgvector column and HNSW cosine index are installed by migration only when the extension can be created. Isolated raw SQL in the Node retrieval repository performs FTS and vector similarity; results are merged with deterministic Reciprocal Rank Fusion (RRF, default k=60), deduplicated by chunk ID, with stable ID tie breaks. If pgvector or Gemini embeddings are unavailable, FTS remains available and metadata explicitly reports the limitation. Empty search returns `NO_RESULTS`; DB/search errors return `UNAVAILABLE`; simulation continues deterministically.
+
+Node selects a bounded context from its retrieval results and sends it to the authenticated internal analysis endpoint. The Gemini prompt labels this as general grounding, distinguishes internally authored assumptions from external source material, and forbids changing or recalculating Node's values. FastAPI filters evidence references to IDs Node supplied. No public retrieval endpoint, crawler, autonomous ingestion, or frontend RAG UI is included.
 
 ### Evidence and provenance contract
 
@@ -63,7 +65,7 @@ Financial Twin and scenario provenance is attached to raw fields, individual goa
 
 Authenticated `POST /api/simulations` runs persist the authoritative response in the existing `Scenario` / `ScenarioResult` models, linked through the authenticated user's Financial Profile. The response includes the persisted scenario UUID. `GET /api/evidence/:scenarioId` applies session authentication and an owner-scoped Scenario query before returning the ledger. The `scenario_results.result_data` JSON holds the complete result and H15 calculation evidence once (the API's duplicate baseline evidence copy is omitted from storage), so H16 adds no tables or Prisma migration. The ledger is an audit view over authoritative deterministic simulation results: CLAIM → EVIDENCE → CALCULATION → INPUT. It builds human-readable deterministic claims from stored deltas and points them to existing H15 records and their inputs; it never reruns the financial engine. Assumptions stay separately labeled ASSUMPTION. AI interpretation may explain evidence but is not used as the source of claims or calculation facts; no AI or external service is called by the ledger endpoint. Anonymous simulations remain available and are not persisted for the ledger.
 
-The FastAPI Pydantic provenance literals mirror the Node service-boundary values; the additive goal-field and assumptions provenance fields default compatibly for older internal clients. FastAPI also rejects AI_INTERPRETATION as provenance for raw financial data. Prisma's existing EvidenceSource, EvidenceDocument, and EvidenceChunk models remain unchanged. They provide future source/document/chunk identity but are not currently populated by ingestion, retrieval, or RAG, and no provenance migration is needed.
+The FastAPI Pydantic provenance literals mirror the Node service-boundary values; the additive goal-field, assumptions, and retrieved-context fields default compatibly for older internal clients. FastAPI also rejects AI_INTERPRETATION as provenance for raw financial data. Prisma's existing EvidenceSource, EvidenceDocument, and EvidenceChunk models are reused for the curated corpus; H17 adds optional pgvector and FTS database indexes only.
 
 ## Migration status
 
@@ -85,7 +87,7 @@ The FastAPI Pydantic provenance literals mirror the Node service-boundary values
 ### SCAFFOLDED
 
 - Node backend module directories for configuration, middleware, routes, controllers, services, repositories, financial logic, scenarios, verification, AI calls, market data, validators, and tests. Financial Twin recalculation, owner-scoped Financial Twin reads, Goal CRUD limited to list/create/update, simulation, and health checks have behavior; user/profile CRUD and other application data CRUD do not.
-- AI-service API/schema scaffold. RAG, retrieval, embeddings, and verification behavior remain unimplemented.
+- AI-service schema/verification scaffold and H17 retrieval/embedding integration described above; model-output verification beyond evidence-reference/assumption filtering remains unimplemented.
 - Empty Next.js frontend location.
 
 ### LEGACY/REFERENCE
@@ -95,7 +97,7 @@ The FastAPI Pydantic provenance literals mirror the Node service-boundary values
 
 ### NOT YET IMPLEMENTED
 
-- Advanced account recovery, email verification, OAuth, MFA, user/profile CRUD, goal deletion and individual goal reads, persisted scenario definitions/results and simulations, RAG, embeddings execution, market APIs, public analysis API, and frontend product UI.
+- Advanced account recovery, email verification, OAuth, MFA, user/profile CRUD, goal deletion and individual goal reads, market APIs, public analysis API, and frontend product UI. H17 RAG storage/retrieval is present; live pgvector availability depends on PostgreSQL installation.
 
 Financial Twin recalculation remains request-based and non-persistent. The Python SQLAlchemy/Alembic layer is a legacy parity/reference artifact only; it is not the production persistence owner.
 

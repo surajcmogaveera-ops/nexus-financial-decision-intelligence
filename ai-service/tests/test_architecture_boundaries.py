@@ -48,7 +48,7 @@ def test_pipeline_placeholders_report_unavailable_without_fake_outputs() -> None
 
     assert rag.status is RAGStatus.NOT_IMPLEMENTED and rag.evidence_refs is None
     assert retrieval.status is RetrievalStatus.UNAVAILABLE and retrieval.evidence_refs is None
-    assert embedding.status is EmbeddingStatus.UNAVAILABLE and embedding.vector is None
+    assert embedding.status is EmbeddingStatus.NOT_CONFIGURED and embedding.vector is None
     assert generation.status is GenerationStatus.NOT_IMPLEMENTED and generation.text is None
 
 

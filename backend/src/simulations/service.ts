@@ -6,6 +6,9 @@ import { Provenance } from "../financial/constants.js";
 import { CALCULATION_VERSION } from "./constants.js";
 import { SimulationServiceError, validateSimulationRequest } from "./schemas.js";
 import type { BaselineRequestField, SimulationResponse, SimulationWithAiResponse } from "./types.js";
+import { getPrismaClient } from "../db/prisma.js";
+import { retrieveEvidence } from "../rag/repository.js";
+import type { RetrievedContextItem } from "../rag/types.js";
 
 /** Shared orchestration entry point used by both simulation HTTP routes. */
 export function executeSimulation(
@@ -65,9 +68,20 @@ export async function simulateWithAi(
   const deterministic = simulate(request);
   const persistedScenarioId = persist ? await persist(deterministic) : null;
   const simulation = persistedScenarioId ? { ...deterministic, scenarioId: persistedScenarioId } : deterministic;
+  let retrievedContext: RetrievedContextItem[] = [];
+  try {
+    const topics = deterministic.riskFlags.map((flag) => ({
+      LIQUIDITY_REDUCTION: "liquidity emergency fund", GOAL_SHORTFALL: "financial goals budgeting",
+      NEGATIVE_SURPLUS: "budgeting debt", HIGHER_DEBT_BURDEN: "debt budgeting",
+      EMERGENCY_COVERAGE_REDUCTION: "emergency fund liquidity", MISSING_DATA: "budgeting financial goals",
+    }[flag.type]));
+    const retrievalQuery = topics.length ? topics.join(" ") : "budgeting financial goals liquidity";
+    const retrieval = await retrieveEvidence(getPrismaClient(), retrievalQuery);
+    retrievedContext = retrieval.results.map(({ chunkId, documentId, title, topic, content, sourceId, sourceType, sourceUrl, provenance }) => ({ chunkId, documentId, title, topic, content, sourceId, sourceType, sourceUrl, provenance }));
+  } catch { /* Retrieval is optional and must not interrupt deterministic simulation. */ }
   try {
     const explanation = await aiClient.analyze(
-      createAiAnalysisRequest("Explain the deterministic simulation consequences.", deterministic),
+      createAiAnalysisRequest("Explain the deterministic simulation consequences.", deterministic, undefined, retrievedContext),
     );
     if (isNotConfiguredResponse(explanation)) {
       return { ...simulation, ai: unavailableAi("NOT_CONFIGURED") };

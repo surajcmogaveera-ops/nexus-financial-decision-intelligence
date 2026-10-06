@@ -81,3 +81,11 @@ test("Node rejects an invalid internal request before making a network call", as
   await assert.rejects(client.analyze({}), { code: "INVALID_AI_REQUEST" });
   assert.equal(called, false);
 });
+
+test("Node rejects AI evidence references that were not supplied in retrieved or calculation context", async () => {
+  const input = request();
+  const response = responseFor(input);
+  response.evidenceRefs = ["fabricated-source-id"];
+  const client = new AiServiceClient({ serviceUrl: "http://localhost:8000", serviceToken: "x", fetcher: async () => Response.json(response) });
+  await assert.rejects(client.analyze(input), { code: "AI_SERVICE_INVALID_RESPONSE" });
+});

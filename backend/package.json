@@ -11,6 +11,7 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:status": "prisma migrate status",
+    "rag:ingest": "node dist/rag/load-corpus.js",
     "test": "pnpm build && node --test"
   },
   "dependencies": {

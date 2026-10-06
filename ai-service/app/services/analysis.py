@@ -117,6 +117,7 @@ def collect_supplied_evidence_ids(request: AiAnalysisRequest) -> set[str]:
     for items in sources:
         for item in items:
             supplied.add(item.evidenceId)
+    supplied.update(item.chunkId for item in request.retrievedContext)
     return supplied
 
 

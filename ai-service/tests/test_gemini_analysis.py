@@ -444,6 +444,24 @@ def test_generation_prompt_separates_authoritative_input_from_interpretation() -
     assert "10000" in generation_prompt
 
 
+def test_retrieved_context_is_prompt_grounding_and_only_supplied_chunk_ids_can_be_referenced() -> None:
+    data = rich_payload_data()
+    data["retrievedContext"] = [{
+        "chunkId": "chunk-7", "documentId": "doc-7", "title": "Emergency fund", "topic": "emergency fund",
+        "content": "An emergency reserve is liquid savings.", "sourceId": "source-1",
+        "sourceType": "INTERNAL_CURATED", "sourceUrl": None, "provenance": "ASSUMPTION",
+    }]
+    request = AiAnalysisRequest.model_validate(data)
+    fake = FakeGeminiClient(ready_result(structured_data(evidenceRefs=["chunk-7", "invented-chunk"])))
+
+    outcome = asyncio.run(run_analysis(request, client=fake))
+
+    assert "An emergency reserve is liquid savings." in fake.prompts[0]
+    assert "Treat provenance ASSUMPTION as internally authored NEXUS guidance" in fake.prompts[0]
+    assert outcome.response is not None
+    assert outcome.response.evidenceRefs == ["chunk-7"]
+
+
 # 13/14/15. authentication and contract validation keep working on the Gemini path
 
 

@@ -45,7 +45,7 @@ The API key is read from the environment, is never hardcoded, never logged, and 
 ```text
 Node calculated context
   → schemas/context
-  → prompts → Gemini provider (structured JSON)   [RAG → retrieval → evidence context: future]
+  → prompts → Gemini provider (structured JSON), with Node-selected retrieval context
   → strict Pydantic validation → adapter
   → verification                                  [future]
 ```
@@ -54,12 +54,12 @@ Current subsystem status:
 
 - Gemini: **implemented** — real structured JSON generation behind the existing `GeminiClient` protocol, strict Pydantic validation, explicit `READY`/`NOT_CONFIGURED`/`UNAVAILABLE`/`INVALID_OUTPUT`/`ERROR` states.
 - Prompts: **implemented** — analysis instruction separates AUTHORITATIVE INPUT from AI INTERPRETATION and carries the anti-recalculation, no-invented-evidence/assumptions/risk-categories constraints.
-- RAG: skeleton only; no pipeline execution.
-- Retrieval: skeleton only; no vector search, external scraping, or fabricated documents.
-- Embeddings: skeleton only; no provider calls or fabricated vectors.
+- Retrieval/storage is Node-owned (PostgreSQL FTS and optional pgvector); FastAPI only accepts selected context and offers a protected embedding utility.
+- Retrieval: PostgreSQL FTS and optional pgvector search/fusion run in Node; there is no external scraping or fabricated corpus material.
+- Embeddings: protected FastAPI utility uses the Gemini embedding provider through the existing H11 protocol; absent configuration returns `NOT_CONFIGURED` and never fabricates a vector.
 - Verification: skeleton only; no verification success is claimed.
 
-FastAPI does not calculate monthly surplus, ratios, goals, scenario deltas, liquidity impact, or risk flags. Those results come from Node. RAG, retrieval, embeddings execution, and final AI verification remain future work.
+FastAPI does not connect to PostgreSQL or calculate monthly surplus, ratios, goals, scenario deltas, liquidity impact, or risk flags. Those results come from Node. Embeddings use the existing provider protocol and Gemini `gemini-embedding-001` by default (768 dimensions); absent credentials return `NOT_CONFIGURED`. Node stores/query vectors. The eight-entry internally authored corpus is marked ASSUMPTION, not official SEBI or other external material.
 
 ## Running
 

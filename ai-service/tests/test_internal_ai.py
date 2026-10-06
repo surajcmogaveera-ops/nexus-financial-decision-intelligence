@@ -7,6 +7,7 @@ from app.main import app
 
 SERVICE_TOKEN = "controlled-test-service-token-with-more-than-32-bytes"
 ENDPOINT = "/internal/ai/analyze"
+EMBED_ENDPOINT = "/internal/ai/embed"
 
 
 @pytest.fixture
@@ -126,6 +127,38 @@ def test_authorization_header_is_not_an_alternative(client: TestClient, valid_pa
     )
     assert response.status_code == 401
     assert SERVICE_TOKEN not in response.text
+
+
+def test_retrieved_context_is_strict_and_legacy_payload_defaults_empty(valid_payload: dict) -> None:
+    from app.schemas.ai_analysis import AiAnalysisRequest
+
+    legacy = AiAnalysisRequest.model_validate(valid_payload)
+    assert legacy.retrievedContext == []
+    valid_payload["retrievedContext"] = [{
+        "chunkId": "chunk-1", "documentId": "doc-1", "title": "Budgeting", "topic": "budgeting",
+        "content": "Track spending against income.", "sourceId": "source-1", "sourceType": "INTERNAL_CURATED",
+        "sourceUrl": None, "provenance": "ASSUMPTION",
+    }]
+    assert AiAnalysisRequest.model_validate(valid_payload).retrievedContext[0].chunkId == "chunk-1"
+    valid_payload["retrievedContext"][0]["provenance"] = "RETRIEVED"
+    with pytest.raises(Exception):
+        AiAnalysisRequest.model_validate(valid_payload)
+
+
+def test_embedding_endpoint_is_internal_authenticated_and_explicit_when_unconfigured(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    bad = client.post(EMBED_ENDPOINT, json={"text": "hello"})
+    assert bad.status_code == 401
+    unauthorized = client.post(EMBED_ENDPOINT, json={"text": "hello"}, headers={"X-Service-Token": "wrong"})
+    assert unauthorized.status_code == 401
+    response = client.post(EMBED_ENDPOINT, json={"text": "hello"}, headers={"X-Service-Token": SERVICE_TOKEN})
+    assert response.status_code == 200
+    assert response.json()["status"] == "NOT_CONFIGURED"
+    assert response.json()["vector"] is None
+    monkeypatch.delenv("SERVICE_TOKEN", raising=False)
+    assert client.post(EMBED_ENDPOINT, json={"text": "hello"}, headers={"X-Service-Token": SERVICE_TOKEN}).status_code == 503
+    monkeypatch.setenv("SERVICE_TOKEN", SERVICE_TOKEN)
+    assert client.post(EMBED_ENDPOINT, json={"text": "hello", "databaseUrl": "bad"}, headers={"X-Service-Token": SERVICE_TOKEN}).status_code == 422
 
 
 def test_correct_token_with_malformed_contract_returns_clean_422(client: TestClient, valid_payload: dict) -> None:

@@ -16,10 +16,13 @@ export class AiContractValidationError extends Error {
 
 export function validateAiAnalysisRequest(value: unknown): AiAnalysisRequest {
   const request = record(value);
-  exactKeys(request, [
+  const baseKeys = [
     "requestId", "question", "financialTwin", "baseline", "scenario", "delta",
     "riskFlags", "assumptions", "evidence", "calculationVersion",
-  ]);
+  ];
+  if (Object.keys(request).some((key) => ![...baseKeys, "retrievedContext"].includes(key))) throw new AiContractValidationError("AI service contract fields are unsupported.");
+  if (request.retrievedContext === undefined) request.retrievedContext = [];
+  if (baseKeys.some((key) => !(key in request))) throw new AiContractValidationError("AI service contract fields are missing.");
   if (typeof request.requestId !== "string" || !REQUEST_ID_PATTERN.test(request.requestId)) {
     throw new AiContractValidationError("AI requestId must be a UUID.");
   }
@@ -50,10 +53,18 @@ export function validateAiAnalysisRequest(value: unknown): AiAnalysisRequest {
   validateEvidenceArray(request.evidence);
   validateRiskFlags(request.riskFlags);
   record(request.delta);
+  if (!Array.isArray(request.retrievedContext) || request.retrievedContext.length > 10) throw new AiContractValidationError("Retrieved context is invalid.");
+  for (const itemValue of request.retrievedContext) {
+    const item = record(itemValue);
+    exactKeys(item, ["chunkId", "documentId", "title", "topic", "content", "sourceId", "sourceType", "sourceUrl", "provenance"]);
+    for (const key of ["chunkId", "documentId", "title", "topic", "content", "sourceId", "sourceType"]) if (typeof item[key] !== "string") throw new AiContractValidationError("Retrieved context is invalid.");
+    if (item.sourceUrl !== null && typeof item.sourceUrl !== "string") throw new AiContractValidationError("Retrieved source URL is invalid.");
+    if (item.provenance !== "ASSUMPTION" && item.provenance !== "EXTERNAL") throw new AiContractValidationError("Retrieved source provenance is invalid.");
+  }
   return request as unknown as AiAnalysisRequest;
 }
 
-export function parseAiAnalysisResponse(value: unknown, expectedRequestId: string): AiAnalysisResponse {
+export function parseAiAnalysisResponse(value: unknown, expectedRequestId: string, allowedEvidenceIds?: ReadonlySet<string>): AiAnalysisResponse {
   const response = record(value);
   exactKeys(response, [
     "requestId", "status", "summary", "keyChanges", "tradeoffs", "riskFlags",
@@ -68,6 +79,9 @@ export function parseAiAnalysisResponse(value: unknown, expectedRequestId: strin
   stringArray(response.keyChanges);
   stringArray(response.tradeoffs);
   stringArray(response.evidenceRefs);
+  if (allowedEvidenceIds && (response.evidenceRefs as string[]).some((id) => !allowedEvidenceIds.has(id))) {
+    throw new AiContractValidationError("AI service referenced evidence that Node did not supply.");
+  }
   stringArray(response.assumptions);
   stringArray(response.limitations);
   validateRiskFlags(response.riskFlags);

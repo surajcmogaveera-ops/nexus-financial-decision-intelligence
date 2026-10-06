@@ -102,6 +102,28 @@ export interface CalculationEvidenceIdentityInput {
   provenance: typeof Provenance.COMPUTED;
 }
 
+export interface DomainCalculationIdentityInput {
+  metric: string;
+  inputs: unknown;
+  formula: string;
+  output: unknown;
+  provenance: typeof Provenance.COMPUTED;
+}
+
+/** Uses H14's canonical JSON and numeric normalization; audit timestamps are excluded. */
+export function domainCalculationEvidenceId(input: DomainCalculationIdentityInput): string {
+  const normalized = {
+    metric: input.metric,
+    inputs: input.inputs,
+    formula: input.formula,
+    output: input.output,
+    provenance: input.provenance,
+  };
+  const encoded = JSON.stringify(canonicalizeEvidenceValue(normalized));
+  const digest = createHash("sha256").update(encoded).digest("hex").slice(0, 12).toUpperCase();
+  return `CALC-${digest}`;
+}
+
 /** Mirrors the Python reference's sorted, compact JSON identity payload. */
 export function calculationEvidenceId(input: CalculationEvidenceIdentityInput): string {
   const numericField = (value: unknown): CanonicalJson => {

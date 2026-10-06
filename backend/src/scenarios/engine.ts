@@ -6,8 +6,9 @@ import { Provenance } from "../financial/constants.js";
 import { calculateScenarioDelta } from "../financial/engine/financialMetrics.js";
 import { sumDecimalAmounts } from "../financial/engine/goalProgress.js";
 import { calculateProfileRiskFlags, calculateRiskFlags } from "../financial/engine/riskFlags.js";
-import { calculationEvidenceId, canonicalizeEvidenceValue } from "../financial/engine/evidenceIdentity.js";
-import type { FinancialProfile, FinancialTwin, Money, RiskCalculationEvidence, RiskFlag } from "../financial/types.js";
+import { calculationEvidenceId, canonicalizeEvidenceValue, domainCalculationEvidenceId } from "../financial/engine/evidenceIdentity.js";
+import type { CalculationEvidence, FinancialProfile, FinancialTwin, Money, RiskCalculationEvidence, RiskFlag } from "../financial/types.js";
+import { createFinancialCalculationEvidence } from "../financial/engine/calculationEvidence.js";
 import type { ScenarioDelta, ScenarioInput, ScenarioMetricDelta, ScenarioResult, ScenarioState } from "./types.js";
 
 const scenarioAssumptions: Record<ScenarioInput["type"], string[]> = {
@@ -219,10 +220,27 @@ function makeTwin(raw: FinancialProfile, derived: FinancialTwin["derived"]): Fin
       goalFields: [],
       assumptions: Provenance.ASSUMPTION,
     },
-    riskFlags: [], assumptions: [], calculatedAt: "",
+    riskFlags: [], evidence: createFinancialCalculationEvidence(raw, derived, new Date().toISOString()), assumptions: [], calculatedAt: "",
   };
   twin.riskFlags = calculateProfileRiskFlags(twin);
   return twin;
+}
+
+function scenarioDeltaEvidence(baseline: FinancialTwin, scenario: FinancialTwin, delta: ScenarioDelta, timestamp: string): CalculationEvidence[] {
+  const metrics = ["monthlySurplus", "availableMonthlyCashFlow", "savingsRate", "debtToIncome", "emergencyCoverageMonths", "currentFundingGap", "projectedAmount", "projectedGoalShortfall", "liquidityImpact"] as const;
+  return metrics.map((metric) => {
+    const baselineValue = metric === "liquidityImpact" ? baseline.raw.liquidSavings : metric === "projectedAmount" || metric === "projectedGoalShortfall"
+      ? metricTotal(baseline.derived.goals, metric) : baseline.derived[metric];
+    const scenarioValue = metric === "liquidityImpact" ? scenario.raw.liquidSavings : metric === "projectedAmount" || metric === "projectedGoalShortfall"
+      ? metricTotal(scenario.derived.goals, metric) : scenario.derived[metric];
+    const output = delta[metric];
+    const formula = `${metric} delta = scenario value - baseline value; percentageDelta = delta / abs(baseline) × 100 (null when unavailable or baseline is zero)`;
+    const inputs = { baseline: baselineValue, scenario: scenarioValue };
+    const evidenceId = domainCalculationEvidenceId({ metric: `scenarioDelta.${metric}`, inputs, formula, output, provenance: Provenance.COMPUTED });
+    return { metric: `scenarioDelta.${metric}`, expression: formula, baselineValue, scenarioValue, result: true,
+      provenance: Provenance.COMPUTED, evidenceId, type: "CALCULATION", id: evidenceId, calculationId: evidenceId,
+      inputs, formula, output, timestamp };
+  });
 }
 
 /** Transform raw inputs immutably, then recalculate both states through the existing Financial Engine. */
@@ -253,8 +271,12 @@ export function runScenario(
   const profileFlags = unsupported ? [] : scenarioTwin.riskFlags;
   const riskFlags = mergeFlags(comparison.flags, profileFlags);
   const transformEvidence = unsupported ? [] : transformationEvidence(profile, scenarioRaw, transformed.changed);
+  const calculatedAt = new Date().toISOString();
+  const delta = unsupported ? emptyDelta() : buildDelta(baselineTwin, scenarioTwin);
   const evidence = [...new Map(
-    [...transformEvidence, ...comparison.calculations, ...profileRiskEvidence(profileFlags)]
+    [...baselineTwin.evidence, ...scenarioTwin.evidence,
+      ...scenarioDeltaEvidence(baselineTwin, scenarioTwin, delta, calculatedAt),
+      ...transformEvidence, ...comparison.calculations, ...profileRiskEvidence(profileFlags)]
       .map((record) => [record.evidenceId, record]),
   ).values()];
   const rawProvenance = { ...baselineTwin.provenance.raw };
@@ -287,7 +309,7 @@ export function runScenario(
     scenarioState,
     baselineMetrics: baselineTwin.derived,
     scenarioMetrics: scenarioDerived,
-    delta: unsupported ? emptyDelta() : buildDelta(baselineTwin, scenarioTwin),
+    delta,
     riskFlags,
     evidence,
     assumptions: [
@@ -299,6 +321,6 @@ export function runScenario(
       scenarioDerived: Provenance.COMPUTED,
       assumptions: Provenance.ASSUMPTION,
     },
-    calculatedAt: new Date().toISOString(),
+    calculatedAt,
   };
 }

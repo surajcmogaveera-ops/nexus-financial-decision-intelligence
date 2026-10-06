@@ -98,7 +98,9 @@ test("scenario result and evidence IDs are deterministic apart from calculatedAt
   assert.deepEqual(first.scenarioState, second.scenarioState);
   assert.deepEqual(first.delta, second.delta);
   assert.deepEqual(first.riskFlags, second.riskFlags);
-  assert.deepEqual(first.evidence, second.evidence);
+  assert.deepEqual(first.evidence.map(({ timestamp, ...item }) => item), second.evidence.map(({ timestamp, ...item }) => item));
+  assert.notEqual(first.evidence.find((item) => item.type === "CALCULATION").timestamp,
+    second.evidence.find((item) => item.type === "CALCULATION").timestamp);
 });
 
 test("separate scenarios start from the original baseline and do not contaminate each other", () => {

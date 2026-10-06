@@ -133,10 +133,16 @@ function validateEvidenceArray(value: unknown): void {
   if (!Array.isArray(value)) throw new AiContractValidationError();
   for (const item of value) {
     const evidence = record(item);
-    exactKeys(evidence, ["metric", "expression", "baselineValue", "scenarioValue", "result", "provenance", "evidenceId"]);
+    const calculation = evidence.type === "CALCULATION";
+    const baseKeys = ["metric", "expression", "baselineValue", "scenarioValue", "result", "provenance", "evidenceId"];
+    exactKeys(evidence, calculation ? [...baseKeys, "type", "id", "calculationId", "inputs", "formula", "output", "timestamp"] : baseKeys);
     if (typeof evidence.metric !== "string" || typeof evidence.expression !== "string" ||
         typeof evidence.result !== "boolean" || evidence.provenance !== Provenance.COMPUTED ||
         typeof evidence.evidenceId !== "string") throw new AiContractValidationError();
+    if (calculation && (evidence.id !== evidence.evidenceId || evidence.calculationId !== evidence.evidenceId ||
+        typeof evidence.formula !== "string" || typeof evidence.timestamp !== "string" ||
+        !/^\d{4}-\d\d-\d\dT/.test(evidence.timestamp) || !evidence.inputs || typeof evidence.inputs !== "object" ||
+        !/^CALC-[A-F0-9]{12}$/.test(String(evidence.evidenceId)))) throw new AiContractValidationError();
     for (const key of ["baselineValue", "scenarioValue"]) {
       const entry = evidence[key];
       if (entry !== null && typeof entry !== "string" && typeof entry !== "number" && typeof entry !== "boolean") {

@@ -1,6 +1,7 @@
 import { Provenance } from "./constants.js";
 import { calculateFinancialMetrics } from "./engine/financialMetrics.js";
 import { calculateProfileRiskFlags } from "./engine/riskFlags.js";
+import { createFinancialCalculationEvidence } from "./engine/calculationEvidence.js";
 import type { ParsedFinancialTwinRequest } from "./schemas.js";
 import type { DerivedMetric, FinancialTwin, RawField } from "./types.js";
 
@@ -37,6 +38,7 @@ export function calculateFinancialTwin(parsed: ParsedFinancialTwinRequest): Fina
   const derivedProvenance = Object.fromEntries(
     Object.keys(derived).map((key) => [key, Provenance.COMPUTED]),
   ) as Record<DerivedMetric, Extract<Provenance, "COMPUTED">>;
+  const calculatedAt = new Date().toISOString();
   const result: FinancialTwin = {
     raw: profile,
     derived,
@@ -47,10 +49,10 @@ export function calculateFinancialTwin(parsed: ParsedFinancialTwinRequest): Fina
       assumptions: Provenance.ASSUMPTION,
     },
     riskFlags: [],
+    evidence: createFinancialCalculationEvidence(profile, derived, calculatedAt),
     assumptions: [...ASSUMPTIONS],
-    calculatedAt: new Date().toISOString(),
+    calculatedAt,
   };
   result.riskFlags = calculateProfileRiskFlags(result);
   return result;
 }
-

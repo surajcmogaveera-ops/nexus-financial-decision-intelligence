@@ -196,7 +196,8 @@ test("POST /api/simulations returns the versioned flagship response and matches 
     parseScenarioInput(requestBody.scenario),
   );
   const { ai, ...deterministicResult } = result;
-  assert.deepEqual(deterministicResult, mapScenarioResultToSimulationResponse(direct));
+  const withoutAuditTimestamps = (value) => JSON.parse(JSON.stringify(value, (key, item) => key === "timestamp" ? undefined : item));
+  assert.deepEqual(withoutAuditTimestamps(deterministicResult), withoutAuditTimestamps(mapScenarioResultToSimulationResponse(direct)));
   assert.equal(ai.status, "NOT_CONFIGURED");
   assert.equal(ai.explanation, null);
   assert.equal(ai.message, "AI explanation unavailable.");
@@ -267,7 +268,8 @@ test("repeated simulation requests are logically identical", async () => {
     assert.equal(response.status, 200);
     return response.json();
   };
-  assert.deepEqual(await execute(), await execute());
+  const withoutAuditTimestamps = (value) => JSON.parse(JSON.stringify(value, (key, item) => key === "timestamp" ? undefined : item));
+  assert.deepEqual(withoutAuditTimestamps(await execute()), withoutAuditTimestamps(await execute()));
 });
 
 test("simulation endpoint succeeds while all non-test-server fetches are blocked", async () => {
@@ -334,4 +336,3 @@ test("goal routes require an authenticated session", async () => {
   assert.equal(response.status, 401);
   assert.equal((await response.json()).error.code, "AUTHENTICATION_REQUIRED");
 });
-

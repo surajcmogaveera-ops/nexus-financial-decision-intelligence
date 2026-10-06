@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
@@ -133,6 +133,23 @@ class RiskEvidence(StrictModel):
     result: bool
     provenance: Literal["COMPUTED"]
     evidenceId: str
+    type: Literal["CALCULATION"] | None = None
+    id: str | None = None
+    calculationId: str | None = None
+    inputs: dict[str, Any] | None = None
+    formula: str | None = None
+    output: Any = None
+    timestamp: str | None = None
+
+    @model_validator(mode="after")
+    def validate_calculation_record(self):
+        if self.type == "CALCULATION":
+            if (self.id != self.evidenceId or self.calculationId != self.evidenceId or
+                    not self.evidenceId.startswith("CALC-") or len(self.evidenceId) != 17 or
+                    any(character not in "0123456789ABCDEF" for character in self.evidenceId[5:]) or
+                    self.inputs is None or self.formula is None or self.timestamp is None):
+                raise ValueError("Calculation evidence is incomplete or has an invalid identity")
+        return self
 
 
 class FinancialTwinContext(StrictModel):

@@ -85,7 +85,20 @@ export interface RiskCalculationEvidence {
   result: boolean;
   provenance: Extract<Provenance, "COMPUTED">;
   evidenceId: string;
+  /** Present on auditable domain calculations; absent on comparison evidence. */
+  type?: "CALCULATION";
+  id?: string;
+  calculationId?: string;
+  inputs?: Record<string, unknown>;
+  formula?: string;
+  output?: unknown;
+  timestamp?: string;
 }
+
+/** Full calculation record carried in the canonical H14 evidence collection. */
+export type CalculationEvidence = RiskCalculationEvidence & Required<Pick<RiskCalculationEvidence,
+  "type" | "id" | "calculationId" | "inputs" | "formula" | "output" | "timestamp"
+>>;
 
 export interface RiskDetectionResult {
   flags: RiskFlag[];
@@ -105,6 +118,7 @@ export interface FinancialTwin {
     assumptions: Extract<Provenance, "ASSUMPTION">;
   };
   riskFlags: RiskFlag[];
+  evidence: CalculationEvidence[];
   assumptions: string[];
   calculatedAt: string;
 }
@@ -113,4 +127,3 @@ export interface FinancialTwinRequest {
   profile: FinancialProfile;
   asOfDate: string;
 }
-

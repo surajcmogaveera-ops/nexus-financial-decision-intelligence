@@ -60,11 +60,14 @@ export function simulate(request: unknown): SimulationResponse {
 export async function simulateWithAi(
   request: unknown,
   aiClient: Pick<AiServiceClient, "analyze"> = new AiServiceClient(),
+  persist?: (simulation: SimulationResponse) => Promise<string | null>,
 ): Promise<SimulationWithAiResponse> {
-  const simulation = simulate(request);
+  const deterministic = simulate(request);
+  const persistedScenarioId = persist ? await persist(deterministic) : null;
+  const simulation = persistedScenarioId ? { ...deterministic, scenarioId: persistedScenarioId } : deterministic;
   try {
     const explanation = await aiClient.analyze(
-      createAiAnalysisRequest("Explain the deterministic simulation consequences.", simulation),
+      createAiAnalysisRequest("Explain the deterministic simulation consequences.", deterministic),
     );
     if (isNotConfiguredResponse(explanation)) {
       return { ...simulation, ai: unavailableAi("NOT_CONFIGURED") };

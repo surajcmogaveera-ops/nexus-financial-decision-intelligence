@@ -23,6 +23,8 @@ export interface SimulationScenario {
 }
 
 export interface SimulationResponse {
+  /** Present when an authenticated run was persisted for Evidence Ledger access. */
+  scenarioId?: string;
   baseline: SimulationBaseline;
   scenario: SimulationScenario;
   delta: ScenarioDelta;

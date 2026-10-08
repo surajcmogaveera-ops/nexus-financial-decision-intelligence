@@ -8,7 +8,8 @@ export type VerificationIssueCode =
   | "UNKNOWN_EVIDENCE_REFERENCE"
   | "SCENARIO_MISMATCH"
   | "UNSUPPORTED_FACTUAL_CLAIM"
-  | "GUARANTEE_LANGUAGE_DETECTED";
+  | "GUARANTEE_LANGUAGE_DETECTED"
+  | "VERIFIER_FAILURE";
 
 export interface VerificationIssue {
   code: VerificationIssueCode;

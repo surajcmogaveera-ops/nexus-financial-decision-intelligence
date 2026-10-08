@@ -16,6 +16,7 @@ import { AiServiceError } from "./ai/client.js";
 import type { AiServiceClient } from "./ai/client.js";
 import { PrismaScenarioEvidenceRepository, type ScenarioEvidenceRepository } from "./scenarios/repository.js";
 import { createEvidenceRouter } from "./scenarios/evidenceRoutes.js";
+import type { SimulationFlowDependencies } from "./simulations/service.js";
 
 export interface AppDependencies {
   databaseHealthCheck?: () => Promise<void>;
@@ -24,6 +25,7 @@ export interface AppDependencies {
   authService?: AuthService;
   aiServiceClient?: Pick<AiServiceClient, "analyze">;
   scenarioEvidenceRepository?: ScenarioEvidenceRepository;
+  simulationFlowDependencies?: SimulationFlowDependencies;
 }
 
 export function assertFrontendOriginConfiguration(
@@ -77,7 +79,7 @@ export function createApp(dependencies: AppDependencies = {}): express.Express {
   app.use("/api/financial-twin", createFinancialTwinReadRouter(financialDataRepository, auth));
   app.use("/api/goals", createGoalsRouter(financialDataRepository, auth));
   app.use("/api/scenarios", scenarioRouter);
-  app.use("/api/simulations", createSimulationRouter(dependencies.aiServiceClient, scenarioEvidenceRepository, auth));
+  app.use("/api/simulations", createSimulationRouter(dependencies.aiServiceClient, scenarioEvidenceRepository, auth, dependencies.simulationFlowDependencies));
   app.use("/api/evidence", createEvidenceRouter(scenarioEvidenceRepository, auth));
 
   app.use("/api", (request, response) => {

@@ -3,6 +3,8 @@ import type { ScenarioDelta, ScenarioInput, ScenarioState, ScenarioType } from "
 import type { CALCULATION_VERSION } from "./constants.js";
 import type { AiAnalysisResponse } from "../ai/types.js";
 import type { Provenance } from "../financial/constants.js";
+import type { AiVerificationResult } from "../verification/types.js";
+import type { RetrievalResult } from "../rag/types.js";
 
 export type BaselineRequestField = "baseline" | "profile";
 
@@ -37,9 +39,14 @@ export type SimulationAiResult =
   | { status: "READY"; explanation: AiAnalysisResponse; provenance: Extract<Provenance, "AI_INTERPRETATION">; message: null }
   | { status: "NOT_CONFIGURED" | "UNAVAILABLE"; explanation: null; message: "AI explanation unavailable." };
 
+export type SimulationVerificationResult = AiVerificationResult
+  | { status: "NOT_APPLICABLE"; issues: []; message: "AI explanation is unavailable." };
+
 /** Flagship response: the deterministic simulation remains top-level and authoritative. */
 export interface SimulationWithAiResponse extends SimulationResponse {
   ai: SimulationAiResult;
+  retrieval: RetrievalResult;
+  verification: SimulationVerificationResult;
 }
 
 export interface ValidatedSimulationRequest {

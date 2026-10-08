@@ -58,7 +58,7 @@ test("successful AI explanation is additive to the deterministic simulation", as
   const response = await postSimulation({ analyze: async (request) => readyExplanation(request) });
   assert.equal(response.status, 200);
   const result = await response.json();
-  const { ai, ...simulation } = result;
+  const { ai, retrieval, verification, ...simulation } = result;
   assert.deepEqual(withoutEvidenceTimestamps(simulation), withoutEvidenceTimestamps(direct));
   assert.equal(ai.status, "READY");
   assert.equal(ai.explanation.summary, "This explanation came from the AI service.");
@@ -72,7 +72,7 @@ test("FastAPI unavailable preserves the complete deterministic simulation", asyn
   const direct = simulate(requestBody());
   const response = await postSimulation(unavailableClient("AI_SERVICE_UNAVAILABLE"));
   const result = await response.json();
-  const { ai, ...simulation } = result;
+  const { ai, retrieval, verification, ...simulation } = result;
   assert.equal(response.status, 200);
   assert.deepEqual(withoutEvidenceTimestamps(simulation), withoutEvidenceTimestamps(direct));
   assert.equal(ai.status, "UNAVAILABLE");
@@ -84,7 +84,7 @@ test("FastAPI authentication failure is isolated to the AI explanation state", a
   const direct = simulate(requestBody());
   const response = await postSimulation(unavailableClient("AI_SERVICE_UNAUTHORIZED"));
   const result = await response.json();
-  const { ai, ...simulation } = result;
+  const { ai, retrieval, verification, ...simulation } = result;
   assert.deepEqual(withoutEvidenceTimestamps(simulation), withoutEvidenceTimestamps(direct));
   assert.equal(ai.status, "UNAVAILABLE");
 });
@@ -104,7 +104,7 @@ test("AI timeout preserves deterministic simulation and returns UNAVAILABLE", as
   const direct = simulate(requestBody());
   const response = await postSimulation(unavailableClient("AI_SERVICE_TIMEOUT"));
   const result = await response.json();
-  const { ai, ...simulation } = result;
+  const { ai, retrieval, verification, ...simulation } = result;
   assert.deepEqual(withoutEvidenceTimestamps(simulation), withoutEvidenceTimestamps(direct));
   assert.equal(ai.status, "UNAVAILABLE");
   assert.equal(ai.message, "AI explanation unavailable.");
@@ -114,7 +114,7 @@ test("invalid AI response preserves deterministic simulation and returns UNAVAIL
   const direct = simulate(requestBody());
   const response = await postSimulation(unavailableClient("AI_SERVICE_INVALID_RESPONSE"));
   const result = await response.json();
-  const { ai, ...simulation } = result;
+  const { ai, retrieval, verification, ...simulation } = result;
   assert.deepEqual(withoutEvidenceTimestamps(simulation), withoutEvidenceTimestamps(direct));
   assert.equal(ai.status, "UNAVAILABLE");
 });

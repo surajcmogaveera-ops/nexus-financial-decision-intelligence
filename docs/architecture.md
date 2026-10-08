@@ -23,7 +23,7 @@ FastAPI AI service
 - **Financial Engine:** The deterministic TypeScript implementation in the Node backend is the authoritative production calculation source. It recalculates derived metrics from validated raw financial inputs, uses decimal-string/BigInt arithmetic for money, and exposes explicit, deterministic risk flags with computed provenance. Python financial, goal, and risk engines are **LEGACY/REFERENCE** behavioral and parity oracles; Python is not an active production financial backend and these engines are not part of the AI service.
 - **Scenario Engine:** The in-memory deterministic implementation in the Node backend applies validated scenario transforms to cloned raw Financial Twin state, recalculates baseline and scenario using the same Financial Engine, then derives deltas, comparison/profile risk flags, provenance, and stable evidence. It does not persist scenario executions.
 - **Evidence and provenance:** Node's single application-level definition is `Provenance` in `backend/src/financial/constants.ts`. Provenance describes origin, not confidence or correctness. Raw user-supplied values are USER, deterministic metrics and scenario changes are COMPUTED, method conditions are explicitly listed ASSUMPTION, and the flagship AI wrapper labels generated prose AI_INTERPRETATION. EXTERNAL and RETRIEVED are reserved for data actually supplied by an authoritative external source or actually retrieved from a NEXUS corpus; neither is currently fabricated or populated.
-- **Simulation API:** `POST /api/simulations` completes its shared Node Simulation Service calculation before attempting optional AI explanation. Its top-level deterministic values remain authoritative, and an additive `ai` state reports `READY`, `NOT_CONFIGURED`, or `UNAVAILABLE`; classified AI-service failures never invalidate the simulation. The prior `POST /api/scenarios/simulate` route remains deterministic-only and keeps its Hour 6 response shape.
+- **Simulation API:** `POST /api/simulations` calculates first, preserves calculation evidence, retrieves a bounded request-scoped context through the existing Node/PostgreSQL RAG repository, calls authenticated FastAPI, and runs the H19.1 Node verifier on valid AI output. The response exposes deterministic values, `retrieval`, `ai`, and `verification` separately. If AI is unavailable, deterministic values and retrieval diagnostics remain available and verification is `NOT_APPLICABLE`; a verifier exception is `FLAGGED`. Authenticated executions persist through the existing owner-scoped scenario repository and require a saved Financial Profile; anonymous executions are non-persistent. The prior `POST /api/scenarios/simulate` route remains deterministic-only and keeps its Hour 6 response shape.
 - **Authentication:** Registration and login hash passwords with bcrypt and issue an eight-hour signed HttpOnly SameSite=Lax cookie. Middleware verifies the cookie and places the trusted subject in `req.auth.userId`. CORS only allows configured explicit origins and enables credentials for them; cookies are Secure in production.
 - **Owned Financial Twin and Goals APIs:** Protected Node routes derive ownership solely from the verified authenticated request context, then use profile/goal services and Prisma repositories scoped to that user. Client-supplied IDs never select an owner. Hour 8's development identity was removed; `NEXUS_DEV_USER_ID` is not used.
 - **FastAPI AI service:** Owns Gemini interaction, structured analysis, and the embedding provider utility. It has no PostgreSQL access and receives only selected chunks in Node's analysis request. The protected embedding operation returns a vector to Node and does not query or persist anything. Gemini is configured by `GEMINI_API_KEY`; embeddings use `GEMINI_EMBEDDING_MODEL` (default `gemini-embedding-001`) at 768 dimensions. Provider failures stay explicit and no vectors are fabricated.
@@ -120,12 +120,18 @@ Scenario Engine
         ↓
 Financial Engine (baseline and transformed state)
         ↓
-Delta, risk flags, evidence, assumptions
+Delta, risk flags, calculation evidence, assumptions
         ↓
-Versioned Simulation Response (calculationVersion 1.0)
+Node PostgreSQL FTS + optional pgvector RAG (up to five chunks)
+        ↓
+Authenticated FastAPI contract → Gemini structured analysis
+        ↓
+Node response validation → H19.1 deterministic verifier
+        ↓
+Deterministic result + retrieval diagnostics + AI interpretation + verification
 ```
 
-The simulation response is generated entirely by the Node.js deterministic calculation path. FastAPI/Gemini are not required. The endpoint accepts a supplied raw baseline and structured scenario, requires an explicit calculation date, and remains a public, non-persistent calculation endpoint; it does not read account data.
+The authoritative simulation response is generated entirely by the Node.js deterministic calculation path. After calculation, Node retrieves up to five evidence chunks and sends them with request-scoped deterministic context to authenticated FastAPI. FastAPI validates the request and either generates a structured Gemini interpretation or returns an explicit configuration/generation failure. Node validates the AI contract and runs its deterministic verifier before exposing the explanation. AI output cannot overwrite deterministic results. Retrieval availability and verification status are included in the response. Anonymous executions are non-persistent; authenticated executions persist through the existing scenario/evidence repository and require an owned Financial Profile. The endpoint accepts a supplied raw baseline and structured scenario and requires an explicit calculation date.
 
 ### Financial Twin and Goal ownership flows
 

@@ -175,7 +175,7 @@ test("POST /api/simulations returns the versioned flagship response and matches 
   });
   assert.equal(response.status, 200);
   const result = await response.json();
-  assert.deepEqual(Object.keys(result).sort(), ["ai", "assumptions", "baseline", "calculationVersion", "delta", "riskFlags", "scenario"].sort());
+  assert.deepEqual(Object.keys(result).sort(), ["ai", "assumptions", "baseline", "calculationVersion", "delta", "retrieval", "riskFlags", "scenario", "verification"].sort());
   assert.equal(result.calculationVersion, "1.0");
   assert.equal(result.baseline.derived.monthlySurplus, "10000");
   assert.equal(result.baseline.derived.goals[0].projectedAmount, "160000");
@@ -190,12 +190,14 @@ test("POST /api/simulations returns the versioned flagship response and matches 
   assert.equal(result.scenario.provenance.raw.monthlyInvestmentContribution, "COMPUTED");
   assert.ok(result.baseline.evidence.length > 0);
   assert.ok(result.riskFlags.some((flag) => flag.type === "GOAL_SHORTFALL"));
+  assert.ok(result.retrieval.status);
+  assert.ok(result.verification.status);
 
   const direct = runScenario(
     parseFinancialTwinRequest({ profile: requestBody.baseline, asOfDate: requestBody.asOfDate }),
     parseScenarioInput(requestBody.scenario),
   );
-  const { ai, ...deterministicResult } = result;
+  const { ai, retrieval, verification, ...deterministicResult } = result;
   const withoutAuditTimestamps = (value) => JSON.parse(JSON.stringify(value, (key, item) => key === "timestamp" ? undefined : item));
   assert.deepEqual(withoutAuditTimestamps(deterministicResult), withoutAuditTimestamps(mapScenarioResultToSimulationResponse(direct)));
   assert.equal(ai.status, "NOT_CONFIGURED");

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { AiServiceClient } from "../ai/client.js";
-import { simulateWithAi } from "./service.js";
+import { simulateWithAi, type SimulationFlowDependencies } from "./service.js";
 import { createOptionalAuthenticationMiddleware } from "../auth/middleware.js";
 import type { AuthService } from "../auth/service.js";
 import { ApiResourceError } from "../api/errors.js";
@@ -10,6 +10,7 @@ export function createSimulationRouter(
   aiServiceClient: Pick<AiServiceClient, "analyze"> = new AiServiceClient(),
   scenarioEvidenceRepository?: ScenarioEvidenceRepository,
   auth?: AuthService,
+  flowDependencies?: SimulationFlowDependencies,
 ) {
   const simulationRouter = Router();
   if (auth) simulationRouter.use(createOptionalAuthenticationMiddleware(auth));
@@ -24,7 +25,7 @@ export function createSimulationRouter(
           if (!scenarioId) throw new ApiResourceError("FINANCIAL_PROFILE_NOT_FOUND", "A saved financial profile is required to persist this scenario.");
           return scenarioId;
         }
-        : undefined);
+        : undefined, flowDependencies);
       response.status(200).json(result);
     } catch (error) {
       next(error);

@@ -7,3 +7,8 @@
 **/*.py[cod]
 **/.env
 !**/.env.example
+# Local AI coding-agent tooling
+**/.agents/
+**/.claude/
+**/.windsurf/
+**/skills-lock.json

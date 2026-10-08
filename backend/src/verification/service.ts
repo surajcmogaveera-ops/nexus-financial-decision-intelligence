@@ -3,7 +3,7 @@ import type { AiAnalysisRequest, AiAnalysisResponse } from "../ai/types.js";
 import type { RiskFlag } from "../financial/types.js";
 import type { AiVerificationResult, VerificationCheck, VerificationIssue } from "./types.js";
 
-const NUMBER_PATTERN = /(?<![\p{L}\p{N}_])(?:₹\s*)?-?\d[\d,]*(?:\.\d+)?(?:\s*(?:%|lakhs?|crores?|thousand|million|billion))?/giu;
+const NUMBER_PATTERN = /(?<![\p{L}\p{N}_])(?:₹\s*)?-?\d[\d,]*(?:\.\d+)?(?:\s*(?:%|lakhs?|crores?|thousand|million|billion))?(?:\s*(?:\/\s*(?:month|year)|per\s+(?:month|year)|(?:monthly|annually|annual)))?/giu;
 const GUARANTEE_PATTERNS = [
   /\bguarantee(?:d)?\b/iu,
   /\bdefinitely\b/iu,
@@ -66,10 +66,10 @@ export function verifyAiAnalysis(responseValue: unknown, contextValue: AiAnalysi
   }
 
   const strings = collectAnalysisText(parsed);
-  const numeric = check(checkNumericClaims(strings, context));
+  const numeric = check(checkNumericClaims(strings, context, parsed.evidenceRefs));
   const evidenceReferences = check(checkEvidenceReferences(parsed.evidenceRefs, context));
   const scenarioConsistency = check(checkScenarioConsistency(parsed, context, strings));
-  const unsupportedClaims = check(checkUnsupportedClaims(strings, context));
+  const unsupportedClaims = check(checkUnsupportedClaims(strings, context, parsed.evidenceRefs));
   const guaranteeLanguage = check(checkGuaranteeLanguage(strings));
   const limitations = context.scenario.status === "UNSUPPORTED"
     ? ["The deterministic engine marks this scenario unsupported; verification cannot establish its financial impact."]
@@ -84,33 +84,65 @@ function finish(checks: AiVerificationResult["checks"], limitations: string[]): 
   return { status: flagged ? "FLAGGED" : limitations.length ? "PASS_WITH_LIMITATION" : "PASS", checks, issues, limitations };
 }
 
-function checkNumericClaims(texts: Array<{ field: string; text: string }>, context: AiAnalysisRequest): VerificationIssue[] {
-  const supported = new Set<string>();
-  collectNumbers(context.financialTwin.raw, supported);
-  collectNumbers(context.financialTwin.derived, supported);
-  collectNumbers(context.baseline.raw, supported);
-  collectNumbers(context.baseline.derived, supported);
-  collectNumbers(context.scenario.raw, supported);
-  collectNumbers(context.scenario.derived, supported);
-  collectNumbers(context.delta, supported);
-  collectNumbers(context.riskFlags.map((flag) => flag.details), supported);
-  for (const item of context.evidence) collectEvidenceNumbers(item, supported);
-  for (const item of context.baseline.evidence) collectEvidenceNumbers(item, supported);
-  for (const item of context.scenario.evidence) collectEvidenceNumbers(item, supported);
-  for (const assumption of context.assumptions) collectNumericTokens(assumption, supported);
-  for (const item of context.retrievedContext) collectNumericTokens(item.content, supported);
-
+function checkNumericClaims(texts: Array<{ field: string; text: string }>, context: AiAnalysisRequest, evidenceRefs: string[]): VerificationIssue[] {
   const issues: VerificationIssue[] = [];
   for (const item of texts) {
-    for (const token of numericTokens(item.text)) {
-      if (!supported.has(token.key)) {
-        issues.push(issue("UNSUPPORTED_NUMERIC_CLAIM", item.field, `The numeric claim “${token.raw}” is not present in supplied authoritative context or evidence.`));
+    const sentences = item.text.split(/(?<=[.!?;])\s+/u);
+    for (const sentence of sentences) {
+      const claims = numericTokens(sentence);
+      if (!claims.length) continue;
+      const metricSpecs = METRIC_SPECS.filter((spec) => spec.aliases.some((alias) => new RegExp(`\\b${escapeRegex(alias)}\\b`, "iu").test(sentence)));
+      const actionSpecs = ACTION_VALUE_FIELDS.filter((spec) => spec.aliases.some((alias) => new RegExp(`\\b${escapeRegex(alias)}\\b`, "iu").test(sentence)));
+      if (metricSpecs.length || actionSpecs.length) {
+        if (claims.length !== 1 || metricSpecs.length + actionSpecs.length !== 1) {
+          issues.push(issue("UNSUPPORTED_NUMERIC_CLAIM", item.field, "The numeric claim cannot be linked unambiguously to one authoritative metric or scenario value."));
+          continue;
+        }
+        if (metricSpecs.length === 1) {
+          const spec = metricSpecs[0]!;
+          const expected = expectedMetricValues(spec.metric, context, sentence);
+          if (!expected.length || !expected.some((value) => numericClaimMatches(claims[0]!, value, spec.metric))) {
+            issues.push(issue("NUMERIC_MISMATCH", item.field, `The stated ${spec.name} does not match the corresponding authoritative ${/\b(?:baseline|before|prior)\b/iu.test(sentence) ? "baseline" : "scenario"} value.`));
+          }
+        } else {
+          const spec = actionSpecs[0]!;
+          const baseline = context.baseline.raw[spec.field as keyof typeof context.baseline.raw];
+          const scenario = context.scenario.raw[spec.field as keyof typeof context.scenario.raw];
+          const isBaseline = /\b(?:baseline|before|prior)\b/iu.test(sentence);
+          const expected = isBaseline ? baseline : scenario;
+          if (typeof expected !== "string" || !numericClaimMatches(claims[0]!, expected, spec.field)) {
+            issues.push(issue("SCENARIO_MISMATCH", item.field, `The stated ${spec.field} does not match the authoritative ${isBaseline ? "baseline" : "scenario"} value.`));
+          }
+        }
+        continue;
+      }
+
+      const exactAssumption = item.field.startsWith("assumptions[") && context.assumptions.some((assumption) => assumption.trim().toLocaleLowerCase() === sentence.trim().toLocaleLowerCase());
+      if (!exactAssumption && !supportsCitedNumber(claims[0]!, sentence, context, new Set(evidenceRefs))) {
+        issues.push(issue("UNSUPPORTED_NUMERIC_CLAIM", item.field, `The numeric claim “${claims[0]!.raw}” is not tied to a matching authoritative metric, explicit assumption, or cited evidence.`));
       }
     }
-    issues.push(...checkExplicitMetricValues(item, context));
-    issues.push(...checkExplicitScenarioActionValues(item, context));
   }
   return dedupeIssues(issues);
+}
+
+function supportsCitedNumber(claim: NumericClaim, sentence: string, context: AiAnalysisRequest, refs: Set<string>): boolean {
+  const lower = sentence.toLowerCase();
+  for (const evidence of [...context.evidence, ...context.baseline.evidence, ...context.scenario.evidence]) {
+    if (!refs.has(evidence.evidenceId)) continue;
+    const metric = METRIC_SPECS.find((spec) => spec.aliases.some((alias) => lower.includes(alias)));
+    if (!metric || !evidence.metric.toLowerCase().includes(metric.metric.toLowerCase())) continue;
+    const value = evidence.output ?? evidence.scenarioValue ?? evidence.baselineValue;
+    if (numericValueMatches(claim, value)) return true;
+  }
+  for (const item of context.retrievedContext) {
+    if (!refs.has(item.chunkId)) continue;
+    const evidenceText = item.content.toLowerCase();
+    const claimTopics = ["return", "yield", "tax", "market", "surplus", "shortfall", "contribution", "income", "expense", "debt", "coverage"];
+    if (!claimTopics.some((topic) => lower.includes(topic) && evidenceText.includes(topic))) continue;
+    if (numericTokens(item.content).some((evidenceNumber) => numericValueMatches(claim, evidenceNumber.raw))) return true;
+  }
+  return false;
 }
 
 function checkEvidenceReferences(references: string[], context: AiAnalysisRequest): VerificationIssue[] {
@@ -159,18 +191,19 @@ function checkScenarioConsistency(response: AiAnalysisResponse, context: AiAnaly
   return dedupeIssues(issues);
 }
 
-function checkUnsupportedClaims(texts: Array<{ field: string; text: string }>, context: AiAnalysisRequest): VerificationIssue[] {
+function checkUnsupportedClaims(texts: Array<{ field: string; text: string }>, context: AiAnalysisRequest, evidenceRefs: string[]): VerificationIssue[] {
   const issues: VerificationIssue[] = [];
-  const externalText = context.retrievedContext.filter((item) => item.provenance === "EXTERNAL").map((item) => item.content).join(" ").toLowerCase();
-  const hasExternalTaxEvidence = /\btax(?:es|ation|able|-free)?\b/i.test(externalText);
-  const hasExternalRegulatoryEvidence = /\b(?:sebi|regulat(?:or|ory|ion)|legal|law|compliance|licensed|registered adviser)\b/i.test(externalText);
-  const hasExternalMarketEvidence = /\b(?:market|stock|equity|bond|index|mutual fund)\b/i.test(externalText);
+  const citedExternal = context.retrievedContext.filter((item) => item.provenance === "EXTERNAL" && evidenceRefs.includes(item.chunkId));
   const positiveReturnAssumption = [context.baseline.raw, context.scenario.raw]
     .flatMap((profile) => profile.goals.map((goal) => goal.returnAssumption))
     .some((value) => value > 0);
 
   for (const item of texts) {
     const text = item.text;
+    const citedText = citedExternal.map((entry) => entry.content.toLowerCase()).join(" ");
+    const hasExternalTaxEvidence = /\btax(?:es|ation|able|-free)?\b/i.test(citedText);
+    const hasExternalRegulatoryEvidence = /\b(?:sebi|regulat(?:or|ory|ion)|legal|law|compliance|licensed|registered adviser)\b/i.test(citedText);
+    const hasExternalMarketEvidence = /\b(?:market|stock|equity|bond|index|mutual fund)\b/i.test(citedText);
     if (!hasExternalTaxEvidence && /\b(?:tax(?:es|ation|able| liability|-free)?|deductible)\b/iu.test(text)) {
       issues.push(issue("UNSUPPORTED_FACTUAL_CLAIM", item.field, "Tax claims have no supporting external evidence in the supplied context."));
     }
@@ -180,7 +213,7 @@ function checkUnsupportedClaims(texts: Array<{ field: string; text: string }>, c
     if (!hasExternalMarketEvidence && /\b(?:market|stocks?|equities|bonds?|indices|index|mutual funds?)\s+(?:will|would|has|have|is expected to|returned|gained|lost|rose|fell|outperformed|underperformed)\b/iu.test(text)) {
       issues.push(issue("UNSUPPORTED_FACTUAL_CLAIM", item.field, "A market-performance claim has no supporting external evidence in the supplied context."));
     }
-    if (!positiveReturnAssumption && /\b(?:(?:will|would|can|could|is expected to|should)\s+(?:earn|generate|deliver|produce)\s+(?:an?\s+)?(?:\d[\d,.]*\s*%\s+)?(?:return|yield|profit)|(?:return|yield)\s+of\s+\d[\d,.]*\s*%)\b/iu.test(text)) {
+    if (!positiveReturnAssumption && /\b(?:(?:will|would|can|could|is expected to|should)\s+(?:earn|generate|deliver|produce|return)\s+(?:an?\s+)?(?:\d[\d,.]*\s*%\s+)?(?:return|yield|profit)?|(?:return|yield)\s+of\s+\d[\d,.]*\s*%)\b/iu.test(text)) {
       issues.push(issue("UNSUPPORTED_FACTUAL_CLAIM", item.field, "An investment return claim is unsupported by the supplied assumptions and evidence."));
     }
     if (/\b(?:credit score|net worth|tax liability|portfolio volatility|probability of success)\b/iu.test(text)) {
@@ -201,62 +234,22 @@ function checkGuaranteeLanguage(texts: Array<{ field: string; text: string }>): 
   return dedupeIssues(issues);
 }
 
-function checkExplicitMetricValues(item: { field: string; text: string }, context: AiAnalysisRequest): VerificationIssue[] {
-  const issues: VerificationIssue[] = [];
-  const sentences = item.text.split(/(?<=[.!?;])\s+/u);
-  for (const sentence of sentences) {
-    const numbers = numericTokens(sentence);
-    if (!numbers.length) continue;
-    for (const spec of METRIC_SPECS) {
-      if (!spec.aliases.some((alias) => new RegExp(`\\b${escapeRegex(alias)}\\b`, "iu").test(sentence))) continue;
-      if (numbers.length !== 1) continue;
-      const expected = expectedMetricValues(spec.metric, context, sentence);
-      if (expected.length && !expected.some((value) => value === numbers[0]!.key)) {
-        issues.push(issue("NUMERIC_MISMATCH", item.field, `The stated ${spec.name} does not match the corresponding deterministic scenario value.`));
-      }
-    }
-  }
-  return issues;
-}
-
-function expectedMetricValues(metric: string, context: AiAnalysisRequest, sentence: string): string[] {
+function expectedMetricValues(metric: string, context: AiAnalysisRequest, sentence: string): unknown[] {
   const isDelta = /\b(?:delta|change|increase|decrease|difference)\b/iu.test(sentence);
   const isBaseline = /\b(?:baseline|before|prior)\b/iu.test(sentence);
   const deltaMetric = (context.delta as unknown as Record<string, { delta?: string | number | null; percentageDelta?: string | number | null }>)[metric];
   const selected = isDelta ? [deltaMetric?.delta, deltaMetric?.percentageDelta]
     : isBaseline ? [context.baseline.derived[metric as keyof typeof context.baseline.derived]]
-      : [context.scenario.derived[metric as keyof typeof context.scenario.derived], deltaMetric?.delta];
-  const values: string[] = [];
-  for (const value of selected) appendValueNumbers(value, values);
+      : [context.scenario.derived[metric as keyof typeof context.scenario.derived]];
+  const values: unknown[] = selected.filter((value) => value !== null && value !== undefined);
   if (metric === "requiredMonthlyContribution" || metric === "projectedAmount" || metric === "projectedGoalShortfall") {
     const goals = isBaseline ? context.baseline.derived.goals : context.scenario.derived.goals;
-    for (const goal of goals) appendValueNumbers(goal[metric as "requiredMonthlyContribution" | "projectedAmount" | "projectedGoalShortfall"], values);
-  }
-  return values;
-}
-
-function checkExplicitScenarioActionValues(item: { field: string; text: string }, context: AiAnalysisRequest): VerificationIssue[] {
-  const issues: VerificationIssue[] = [];
-  const sentences = item.text.split(/(?<=[.!?;])\s+/u);
-  for (const sentence of sentences) {
-    const numbers = numericTokens(sentence);
-    if (numbers.length !== 1) continue;
-    for (const spec of ACTION_VALUE_FIELDS) {
-      const baseline = context.baseline.raw[spec.field as keyof typeof context.baseline.raw];
-      const scenario = context.scenario.raw[spec.field as keyof typeof context.scenario.raw];
-      if (typeof baseline !== "string" || typeof scenario !== "string" || normalizeNumber(baseline) === normalizeNumber(scenario)) continue;
-      const alias = spec.aliases.find((candidate) => new RegExp(`\\b${escapeRegex(candidate)}\\b`, "iu").test(sentence));
-      if (!alias) continue;
-      const pattern = new RegExp(`\\b${escapeRegex(alias)}\\b[^.!?;]{0,60}?\\b(?:is|of|to|at|equals?|becomes?|reaches?|increases?\\s+to|decreases?\\s+to|changes?\\s+to)\\s*(?:₹\\s*)?(-?\\d[\\d,]*(?:\\.\\d+)?(?:\\s*(?:%|lakhs?|crores?|thousand|million|billion))?)`, "iu");
-      const match = pattern.exec(sentence);
-      if (!match) continue;
-      const expected = /\b(?:baseline|before|prior)\b/iu.test(sentence) ? normalizeNumber(baseline) : normalizeNumber(scenario);
-      if (numbers[0]!.key !== expected) {
-        issues.push(issue("SCENARIO_MISMATCH", item.field, `The stated ${spec.field} conflicts with the calculated scenario state.`));
-      }
+    for (const goal of goals) {
+      const value = goal[metric as "requiredMonthlyContribution" | "projectedAmount" | "projectedGoalShortfall"];
+      if (value !== null) values.push(value);
     }
   }
-  return issues;
+  return values;
 }
 
 function collectAnalysisText(response: AiAnalysisResponse): Array<{ field: string; text: string }> {
@@ -268,45 +261,52 @@ function collectAnalysisText(response: AiAnalysisResponse): Array<{ field: strin
   return result;
 }
 
-function collectNumbers(value: unknown, result: Set<string>, parentKey = ""): void {
-  if (typeof value === "number" && Number.isFinite(value)) { collectNumericTokens(String(value), result); return; }
-  if (typeof value === "string") { collectNumericTokens(value, result); return; }
-  if (Array.isArray(value)) { value.forEach((item) => collectNumbers(item, result, parentKey)); return; }
-  if (!value || typeof value !== "object") return;
-  const ignored = /^(?:name|currency|status|type|provenance|evidenceId|id|calculationId|timestamp|targetDate|sourceId|chunkId|documentId|sourceUrl|formula|expression|trigger)$/iu;
-  for (const [key, child] of Object.entries(value)) if (!ignored.test(key)) collectNumbers(child, result, key);
+interface NumericClaim { raw: string; key: string; value: number; kind: "plain" | "amount" | "percent"; period: "month" | "year" | null }
+
+function numericTokens(text: string): NumericClaim[] {
+  return [...text.matchAll(NUMBER_PATTERN)].map((match) => parseNumericClaim(match[0]!.trim())).filter((claim): claim is NumericClaim => claim !== null);
 }
 
-function collectEvidenceNumbers(value: AiAnalysisRequest["evidence"][number], result: Set<string>): void {
-  collectNumbers(value.baselineValue, result);
-  collectNumbers(value.scenarioValue, result);
-  collectNumbers(value.result, result);
-  if (value.inputs) collectNumbers(value.inputs, result);
-  if (value.output !== undefined) collectNumbers(value.output, result);
+function parseNumericClaim(raw: string): NumericClaim | null {
+  const valueMatch = /(-?\d[\d,]*(?:\.\d+)?)/u.exec(raw);
+  if (!valueMatch) return null;
+  const value = Number(valueMatch[1]!.replace(/,/g, ""));
+  if (!Number.isFinite(value)) return null;
+  const kind = /%/u.test(raw) ? "percent" : /(?:₹|lakhs?|crores?|thousand|million|billion)/iu.test(raw) ? "amount" : "plain";
+  const scaleName = /\b(lakh|crore|thousand|million|billion)s?\b/iu.exec(raw)?.[1]?.toLowerCase();
+  const scale = scaleName ? ({ lakh: 100_000, crore: 10_000_000, thousand: 1_000, million: 1_000_000, billion: 1_000_000_000 } as Record<string, number>)[scaleName] ?? 1 : 1;
+  const periodMatch = /(?:\/\s*|\bper\s+)(month|year)\b|\b(monthly|annually|annual)\b/iu.exec(raw);
+  const period = periodMatch?.[1]?.toLowerCase() ?? (periodMatch?.[2] ? (periodMatch[2].toLowerCase() === "monthly" ? "month" : "year") : null);
+  const scaled = value * scale;
+  return { raw, value: scaled, kind, period: period as "month" | "year" | null, key: `${scaled}:${kind}:${period ?? ""}` };
 }
 
-function collectNumericTokens(text: string, result: Set<string>): void {
-  for (const item of numericTokens(text)) result.add(item.key);
+function numericValueMatches(claim: NumericClaim, value: unknown): boolean {
+  if (typeof value !== "string" && typeof value !== "number") return false;
+  const expected = parseNumericClaim(String(value));
+  if (!expected || (claim.kind === "percent") !== (expected.kind === "percent")) return false;
+  if (claim.period && claim.period !== expected.period) return false;
+  return Math.abs(claim.value - expected.value) <= Math.max(1e-9, Math.abs(expected.value) * 1e-9);
 }
 
-function numericTokens(text: string): Array<{ raw: string; key: string }> {
-  return [...text.matchAll(NUMBER_PATTERN)].map((match) => ({ raw: match[0]!.trim(), key: normalizeNumber(match[0]!) }));
-}
-
-function normalizeNumber(value: string): string {
-  const match = /(-?\d[\d,]*(?:\.\d+)?)(?:\s*(%|lakhs?|crores?|thousand|million|billion))?/iu.exec(value);
-  if (!match) return value.trim().toLowerCase();
-  let [integer, fraction = ""] = match[1]!.replace(/,/g, "").split(".");
-  integer = integer!.replace(/^(-?)0+(?=\d)/u, "$1");
-  fraction = fraction.replace(/0+$/u, "");
-  const numeric = `${integer}${fraction ? `.${fraction}` : ""}`;
-  const unit = (match[2] ?? "").toLowerCase().replace(/s$/u, "");
-  return `${numeric}:${unit}`;
-}
-
-function appendValueNumbers(value: unknown, result: string[]): void {
-  if (typeof value === "number" && Number.isFinite(value)) result.push(normalizeNumber(String(value)));
-  else if (typeof value === "string") result.push(...numericTokens(value).map((item) => item.key));
+function numericClaimMatches(claim: NumericClaim, expectedValue: unknown, metric: string): boolean {
+  if (typeof expectedValue !== "string" && typeof expectedValue !== "number") return false;
+  const expected = parseNumericClaim(String(expectedValue));
+  if (!expected) return false;
+  const percentageMetric = metric === "savingsRate" || metric === "debtToIncome";
+  if (percentageMetric) {
+    if (claim.kind === "amount" || expected.kind === "amount") return false;
+    const expectedPercent = expected.kind === "percent" ? expected.value : expected.value * 100;
+    const actualPercent = claim.kind === "percent" ? claim.value : claim.value * 100;
+    if (Math.abs(expectedPercent - actualPercent) > Math.max(0.01, Math.abs(expectedPercent) * 0.0001)) return false;
+  } else {
+    if (claim.kind === "percent" || expected.kind === "percent") return false;
+    if (Math.abs(claim.value - expected.value) > Math.max(1e-9, Math.abs(expected.value) * 1e-9)) return false;
+  }
+  const monthlyMetric = metric === "monthlySurplus" || metric === "availableMonthlyCashFlow" || metric === "requiredMonthlyContribution" || metric.startsWith("monthly");
+  if (claim.period && monthlyMetric && claim.period !== "month") return false;
+  if (claim.period && !monthlyMetric) return false;
+  return true;
 }
 
 function positive(value: string | number | null): boolean {

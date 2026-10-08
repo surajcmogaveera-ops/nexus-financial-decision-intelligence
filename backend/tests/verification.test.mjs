@@ -60,8 +60,92 @@ test("numeric claims matching deterministic values pass while mismatches and inv
   const valid = verifyAiAnalysis(responseFor(request, { summary: `Scenario monthly surplus is ${validValue}.` }), request);
   assert.equal(valid.checks.numeric.status, "PASS");
   const mismatch = verifyAiAnalysis(responseFor(request, { summary: "Scenario monthly surplus is 987654321." }), request);
-  assert.ok(hasCode(mismatch, "UNSUPPORTED_NUMERIC_CLAIM"));
   assert.ok(hasCode(mismatch, "NUMERIC_MISMATCH"));
+});
+
+test("metric names bind numbers to the selected authoritative field and state", () => {
+  const request = makeRequest({ type: "INVESTMENT_CHANGE", monthlyInvestmentContribution: 5000 }, [], FLAGSHIP_BASELINE);
+  const monthlySurplus = request.evidence.find((entry) => entry.metric === "monthlySurplus");
+  if (monthlySurplus) {
+    const citedMatch = verifyAiAnalysis(responseFor(request, {
+      summary: `The monthly surplus is ₹${request.scenario.derived.monthlySurplus}.`,
+      evidenceRefs: [monthlySurplus.evidenceId],
+    }), request);
+    assert.equal(citedMatch.checks.numeric.status, "PASS");
+  }
+  const state = verifyAiAnalysis(responseFor(request, { summary: "The scenario projected amount is ₹100,000." }), request);
+  assert.equal(state.checks.numeric.status, "PASS");
+  const baselineCollision = verifyAiAnalysis(responseFor(request, { summary: "The scenario projected amount is ₹160,000." }), request);
+  assert.ok(hasCode(baselineCollision, "NUMERIC_MISMATCH"));
+  const scenarioCollision = verifyAiAnalysis(responseFor(request, { summary: "The baseline projected amount is ₹100,000." }), request);
+  assert.ok(hasCode(scenarioCollision, "NUMERIC_MISMATCH"));
+  const baselineMatch = verifyAiAnalysis(responseFor(request, { summary: "The baseline projected amount is ₹160,000." }), request);
+  assert.equal(baselineMatch.checks.numeric.status, "PASS");
+  const evidence = request.evidence.find((entry) => entry.metric === "monthlySurplus");
+  if (evidence) {
+    const conflictingEvidenceClaim = verifyAiAnalysis(responseFor(request, {
+      summary: "The monthly surplus is ₹120,000.", evidenceRefs: [evidence.evidenceId],
+    }), request);
+    assert.ok(hasCode(conflictingEvidenceClaim, "NUMERIC_MISMATCH"));
+  }
+});
+
+test("coincidental retrieved numbers do not support return, tax, or market claims", () => {
+  const retrieved = [{
+    chunkId: "unrelated-return-number", documentId: "doc-return", title: "Market note", topic: "market",
+    content: "Typical long-term investment returns may be 12%.", sourceId: "source-return", sourceType: "ARTICLE",
+    provenance: "EXTERNAL", sourceUrl: "https://example.test/market",
+  }];
+  const request = makeRequest(undefined, retrieved, FLAGSHIP_BASELINE);
+  for (const summary of [
+    "This investment will return 12%.",
+    "You will save ₹20,000 in tax.",
+    "The market will rise by 15%.",
+  ]) {
+    const result = verifyAiAnalysis(responseFor(request, { summary }), request);
+    assert.equal(result.status, "FLAGGED", summary);
+    assert.ok(hasCode(result, "UNSUPPORTED_NUMERIC_CLAIM"), summary);
+  }
+});
+
+test("cited numeric evidence must correspond to the claim and the referenced source", () => {
+  const retrieved = [{
+    chunkId: "evidence-12", documentId: "doc-12", title: "Returns", topic: "returns",
+    content: "Typical long-term investment returns may be 12%.", sourceId: "source-12", sourceType: "ARTICLE",
+    provenance: "EXTERNAL", sourceUrl: null,
+  }];
+  const request = makeRequest(undefined, retrieved);
+  const cited = verifyAiAnalysis(responseFor(request, {
+    summary: "Typical long-term investment returns may be 12%.", evidenceRefs: ["evidence-12"],
+  }), request);
+  assert.equal(cited.checks.numeric.status, "PASS");
+  const uncited = verifyAiAnalysis(responseFor(request, {
+    summary: "The emergency coverage is 12 months.", evidenceRefs: ["evidence-12"],
+  }), request);
+  assert.equal(uncited.status, "FLAGGED");
+  assert.ok(hasCode(uncited, "NUMERIC_MISMATCH"));
+});
+
+test("numeric units and periods cannot be interchanged", () => {
+  const request = makeRequest();
+  const amount = String(request.scenario.derived.monthlySurplus);
+  assert.equal(verifyAiAnalysis(responseFor(request, { summary: `Monthly surplus is ₹${Number(amount).toLocaleString("en-IN")}.` }), request).checks.numeric.status, "PASS");
+  assert.ok(hasCode(verifyAiAnalysis(responseFor(request, { summary: `Monthly surplus is ${amount}%.` }), request), "NUMERIC_MISMATCH"));
+  assert.ok(hasCode(verifyAiAnalysis(responseFor(request, { summary: `Monthly surplus is ₹${amount}/year.` }), request), "NUMERIC_MISMATCH"));
+  const rate = Number(request.scenario.derived.savingsRate) * 100;
+  const correctRate = verifyAiAnalysis(responseFor(request, { summary: `Savings rate is ${rate}%.` }), request);
+  assert.equal(correctRate.checks.numeric.status, "PASS");
+  const currencyRate = verifyAiAnalysis(responseFor(request, { summary: `Savings rate is ₹${rate}.` }), request);
+  assert.ok(hasCode(currencyRate, "NUMERIC_MISMATCH"));
+});
+
+test("an explicit request assumption supports only the matching assumption statement", () => {
+  const request = makeRequest();
+  request.assumptions = [...request.assumptions, "Illustrative return assumption: 12%."];
+  const matching = verifyAiAnalysis(responseFor(request, { assumptions: [...request.assumptions] }), request);
+  assert.equal(matching.checks.numeric.status, "PASS");
+  const mismatch = verifyAiAnalysis(responseFor(request, { assumptions: [...request.assumptions, "Illustrative return assumption: 15%."] }), request);
+  assert.ok(hasCode(mismatch, "UNSUPPORTED_NUMERIC_CLAIM"));
 });
 
 test("evidence references accept supplied ids and reject unknown or cross-scenario ids", () => {
@@ -112,6 +196,7 @@ test("guarantee language is flagged, including guaranteed returns and certainty"
   for (const summary of ["Returns are guaranteed.", "This is risk-free.", "You will definitely reach the goal."]) {
     assert.ok(hasCode(verifyAiAnalysis(responseFor(request, { summary }), request), "GUARANTEE_LANGUAGE_DETECTED"));
   }
+  assert.ok(hasCode(verifyAiAnalysis(responseFor(request, { summary: "The investment will definitely return 12%." }), request), "GUARANTEE_LANGUAGE_DETECTED"));
 });
 
 test("unsupported deterministic scenarios report a limitation", () => {

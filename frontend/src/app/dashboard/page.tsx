@@ -95,7 +95,9 @@ export default function DashboardPage() {
       <header className="sticky top-0 z-10 border-b border-[var(--line)] bg-[rgba(245,247,243,.94)] backdrop-blur">
         <div className="mx-auto flex min-h-18 max-w-7xl items-center justify-between gap-4 px-5 sm:px-8">
           <Brand compact />
+          <a className="rounded-md px-2 py-2 text-xs font-semibold text-[var(--accent)] transition hover:bg-white lg:hidden" href="/financial-twin">Financial Twin</a>
           <nav className="hidden items-center gap-1 lg:flex" aria-label="Dashboard sections">
+            <a className="rounded-md px-3 py-2 text-xs font-medium text-[var(--muted)] transition hover:bg-white hover:text-[var(--ink)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" href="/financial-twin">Financial Twin</a>
             {navigation.map(([href, label]) => (
               <a className="rounded-md px-3 py-2 text-xs font-medium text-[var(--muted)] transition hover:bg-white hover:text-[var(--ink)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" href={href} key={href}>{label}</a>
             ))}

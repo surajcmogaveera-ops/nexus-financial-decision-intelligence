@@ -1,4 +1,4 @@
-export type RetrievalStatus = "READY" | "NOT_CONFIGURED" | "UNAVAILABLE" | "NO_RESULTS";
+export type RetrievalStatus = "READY" | "NOT_CONFIGURED" | "UNAVAILABLE" | "NO_RESULTS" | "INVALID_QUERY";
 export type RetrievalMethod = "fts" | "vector";
 
 export interface RetrievedEvidence {
@@ -24,7 +24,14 @@ export interface RetrievalResult {
   query: string;
   status: RetrievalStatus;
   results: RetrievedEvidence[];
-  metadata: { methods: RetrievalMethod[]; candidateCount: number; vectorAvailable: boolean; message: string | null };
+  metadata: {
+    methods: RetrievalMethod[];
+    candidateCount: number;
+    ftsAvailable: boolean;
+    vectorAvailable: boolean;
+    vectorStatus: "READY" | "NOT_CONFIGURED" | "UNAVAILABLE";
+    message: string | null;
+  };
 }
 
 export interface RetrievedContextItem {

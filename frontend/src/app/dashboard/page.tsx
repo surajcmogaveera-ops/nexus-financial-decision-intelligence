@@ -3,87 +3,105 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Brand } from "@/components/brand";
-import { LoadingState, StatusPanel } from "@/components/status-panel";
-import { api, ApiClientError, type SafeUser } from "@/lib/api/client";
+import { DashboardEmptyState } from "@/components/dashboard/dashboard-empty-state";
+import { DashboardError } from "@/components/dashboard/dashboard-error";
+import { DashboardLoading } from "@/components/dashboard/dashboard-loading";
+import { FinancialOverview } from "@/components/dashboard/financial-overview";
+import { GoalsSection } from "@/components/dashboard/goals-section";
+import { RecentScenarios } from "@/components/dashboard/recent-scenarios";
+import { RiskFlags } from "@/components/dashboard/risk-flags";
+import { api, ApiClientError, type FinancialTwin, type SafeUser } from "@/lib/api/client";
 
-type ProfileState = "loading" | "available" | "missing" | "error";
+type DashboardState =
+  | { status: "loading" }
+  | { status: "ready"; user: SafeUser; twin: FinancialTwin }
+  | { status: "empty"; user: SafeUser }
+  | { status: "error"; message: string };
 
-const futureSections = [
-  { id: "decision-lab", index: "02", title: "Decision Lab", description: "Scenario exploration will appear here when available." },
-  { id: "evidence", index: "03", title: "Evidence", description: "Source material and provenance will be shown alongside relevant decisions." },
-  { id: "ai-explanation", index: "04", title: "AI explanation", description: "Explanations will remain separate from deterministic financial values." },
-];
+const navigation = [
+  ["#overview", "Overview"],
+  ["#goals", "Goals"],
+  ["#risk-flags", "Risk flags"],
+  ["#recent-scenarios", "Scenarios"],
+] as const;
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [user, setUser] = useState<SafeUser | null>(null);
-  const [profileState, setProfileState] = useState<ProfileState>("loading");
-  const [pageError, setPageError] = useState<string | null>(null);
-  const [signingOut, setSigningOut] = useState(false);
+  const [state, setState] = useState<DashboardState>({ status: "loading" });
   const [retryKey, setRetryKey] = useState(0);
+  const [signingOut, setSigningOut] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    async function loadWorkspace() {
+    async function loadDashboard() {
+      let user: SafeUser;
       try {
         const session = await api.currentUser();
-        if (!active) return;
-        setUser(session.user);
-        try {
-          await api.financialTwin();
-          if (active) setProfileState("available");
-        } catch (error) {
-          if (!active) return;
-          if (error instanceof ApiClientError && error.code === "FINANCIAL_PROFILE_NOT_FOUND") {
-            setProfileState("missing");
-          } else {
-            setProfileState("error");
-            setPageError(messageFor(error));
-          }
-        }
+        user = session.user;
       } catch (error) {
         if (!active) return;
         if (error instanceof ApiClientError && (error.status === 401 || error.code === "AUTHENTICATION_REQUIRED" || error.code === "UNAUTHORIZED")) {
           router.replace("/login");
           return;
         }
-        setProfileState("error");
-        setPageError(messageFor(error));
+        setState({ status: "error", message: sessionErrorMessage(error) });
+        return;
+      }
+
+      try {
+        const twin = await api.financialTwin();
+        if (active) setState({ status: "ready", user, twin });
+      } catch (error) {
+        if (!active) return;
+        if (error instanceof ApiClientError && error.code === "FINANCIAL_PROFILE_NOT_FOUND") {
+          setState({ status: "empty", user });
+          return;
+        }
+        if (error instanceof ApiClientError && (error.status === 401 || error.code === "AUTHENTICATION_REQUIRED" || error.code === "UNAUTHORIZED")) {
+          router.replace("/login");
+          return;
+        }
+        setState({ status: "error", message: profileErrorMessage(error) });
       }
     }
-    void loadWorkspace();
+
+    void loadDashboard();
     return () => { active = false; };
   }, [router, retryKey]);
 
   async function signOut() {
     setSigningOut(true);
+    setLogoutError(null);
     try {
       await api.logout();
       router.replace("/login");
       router.refresh();
-    } catch (error) {
-      setPageError(messageFor(error));
+    } catch {
+      setLogoutError("Sign out could not be completed. Check the backend connection and try again.");
       setSigningOut(false);
     }
   }
 
   function retry() {
-    setProfileState("loading");
-    setPageError(null);
+    setState({ status: "loading" });
     setRetryKey((value) => value + 1);
   }
 
+  const user = state.status === "ready" || state.status === "empty" ? state.user : null;
+
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-10 border-b border-[var(--line)] bg-[rgba(245,247,243,.92)] backdrop-blur">
+      <header className="sticky top-0 z-10 border-b border-[var(--line)] bg-[rgba(245,247,243,.94)] backdrop-blur">
         <div className="mx-auto flex min-h-18 max-w-7xl items-center justify-between gap-4 px-5 sm:px-8">
           <Brand compact />
-          <nav className="hidden items-center gap-1 md:flex" aria-label="Dashboard">
-            <a className="rounded-md px-3 py-2 text-xs font-medium text-[var(--muted)] transition hover:bg-white hover:text-[var(--ink)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" href="#financial-twin">Financial Twin</a>
-            {futureSections.map((section) => <a className="rounded-md px-3 py-2 text-xs font-medium text-[var(--muted)] transition hover:bg-white hover:text-[var(--ink)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" href={`#${section.id}`} key={section.id}>{section.title}</a>)}
+          <nav className="hidden items-center gap-1 lg:flex" aria-label="Dashboard sections">
+            {navigation.map(([href, label]) => (
+              <a className="rounded-md px-3 py-2 text-xs font-medium text-[var(--muted)] transition hover:bg-white hover:text-[var(--ink)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]" href={href} key={href}>{label}</a>
+            ))}
           </nav>
           <div className="flex items-center gap-3">
-            <span className="hidden max-w-44 truncate text-xs text-[var(--muted)] sm:inline" title={user?.email}>{user?.name || user?.email || "Checking session"}</span>
+            <span className="hidden max-w-44 truncate text-xs text-[var(--muted)] sm:inline" title={user?.email}>{user?.name || user?.email || (state.status === "error" ? "Workspace" : "Checking session")}</span>
             <button className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-xs font-semibold text-[var(--ink)] hover:border-[var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:opacity-60" type="button" onClick={signOut} disabled={signingOut || !user}>
               {signingOut ? "Signing out…" : "Sign out"}
             </button>
@@ -92,51 +110,67 @@ export default function DashboardPage() {
       </header>
 
       <main className="mx-auto max-w-7xl px-5 py-9 sm:px-8 sm:py-12">
-        <div className="mb-9 flex flex-col justify-between gap-4 border-b border-[var(--line)] pb-7 sm:flex-row sm:items-end">
+        <div className="mb-8 flex flex-col justify-between gap-4 border-b border-[var(--line)] pb-7 sm:flex-row sm:items-end">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--accent)]">Private workspace</p>
             <h1 className="mt-2 text-3xl font-medium tracking-[-0.045em] text-[var(--ink)] sm:text-4xl">Your financial picture</h1>
-            <p className="mt-2 text-sm text-[var(--muted)]">A considered view of your information, decisions, and supporting context.</p>
+            <p className="mt-2 text-sm text-[var(--muted)]">See your current position, goals, and the signals returned by your Financial Twin.</p>
           </div>
-          <div className="flex items-center gap-2 self-start rounded-full border border-[var(--line)] bg-white px-3 py-1.5 sm:self-auto">
-            <span className="size-1.5 rounded-full bg-[var(--accent)]" aria-hidden="true" />
-            <span className="text-[11px] font-medium text-[var(--muted)]">{user ? "Session verified" : "Checking session"}</span>
-          </div>
+          {state.status === "ready" && <span className="self-start rounded-full border border-[var(--line)] bg-white px-3 py-1.5 text-[11px] font-medium text-[var(--muted)] sm:self-auto">{state.twin.raw.currency} · Current profile</span>}
+          {user && <span className="self-start rounded-full border border-[var(--line)] bg-white px-3 py-1.5 text-[11px] font-medium text-[var(--muted)] sm:self-auto">Session verified</span>}
         </div>
 
-        <section className="mb-8" id="financial-twin" aria-labelledby="financial-twin-heading">
-          <div className="mb-4 flex items-end justify-between gap-4">
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">01 · Your foundation</p>
-              <h2 className="mt-1 text-xl font-semibold tracking-tight text-[var(--ink)]" id="financial-twin-heading">Financial Twin</h2>
-            </div>
-            <span className="hidden text-xs text-[var(--muted)] sm:block">Your financial information, clearly organized</span>
-          </div>
-          {profileState === "loading" && <LoadingState label="Verifying your session and profile…" />}
-          {profileState === "missing" && <StatusPanel eyebrow="Profile not found" title="Your workspace is ready when you are." description="There is no saved Financial Twin profile for this account yet. NEXUS has not created one or filled in any financial values." tone="warning" />}
-          {profileState === "available" && <StatusPanel eyebrow="Connected" title="Your profile is available." description="This workspace does not yet display financial metrics." />}
-          {profileState === "error" && <StatusPanel eyebrow="Could not load workspace" title={user ? "Your session is still protected." : "The workspace could not connect."} description={pageError || "The profile request failed. Please try again."} action={{ label: "Try again", onClick: retry }} tone="error" />}
-        </section>
+        {state.status === "loading" && <DashboardLoading />}
+        {state.status === "error" && <DashboardError message={state.message} onRetry={retry} />}
+        {state.status === "empty" && <DashboardEmptyState />}
 
-        <div className="grid gap-4 lg:grid-cols-3">
-          {futureSections.map((section) => (
-            <section className="scroll-mt-28" id={section.id} key={section.id}>
-              <div className="mb-4">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{section.index} · Planned section</p>
-                <h2 className="mt-1 text-lg font-semibold tracking-tight text-[var(--ink)]">{section.title}</h2>
-              </div>
-              <StatusPanel title="Not available yet" description={section.description} />
+        {state.status === "ready" && (
+          <div className="space-y-10">
+            <section id="overview" className="scroll-mt-28">
+              <FinancialOverview twin={state.twin} />
             </section>
-          ))}
-        </div>
+
+            <section id="goals" className="scroll-mt-28" aria-labelledby="goals-heading">
+              <SectionHeading eyebrow="Plans in view" title="Goals" id="goals-heading" />
+              <GoalsSection twin={state.twin} />
+            </section>
+
+            <section id="risk-flags" className="scroll-mt-28" aria-labelledby="risk-heading">
+              <SectionHeading eyebrow="Backend-reported signals" title="Risk flags" id="risk-heading" />
+              <RiskFlags flags={state.twin.riskFlags} />
+            </section>
+
+            <section id="recent-scenarios" className="scroll-mt-28" aria-labelledby="scenarios-heading">
+              <SectionHeading eyebrow="Decision history" title="Recent scenarios" id="scenarios-heading" />
+              <RecentScenarios />
+            </section>
+          </div>
+        )}
+
+        {logoutError && <p className="mt-6 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800" role="alert">{logoutError}</p>}
         <footer className="mt-12 border-t border-[var(--line)] pt-5 text-xs text-[var(--muted)]">NEXUS · Your private workspace</footer>
       </main>
     </div>
   );
 }
 
-function messageFor(error: unknown): string {
-  if (error instanceof ApiClientError && error.code === "API_UNAVAILABLE") return error.message;
-  if (error instanceof ApiClientError) return error.message;
-  return "An unexpected error occurred while loading your workspace.";
+function SectionHeading({ eyebrow, title, id }: { eyebrow: string; title: string; id: string }) {
+  return (
+    <div className="mb-4">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{eyebrow}</p>
+      <h2 className="mt-1 text-xl font-semibold tracking-tight text-[var(--ink)]" id={id}>{title}</h2>
+    </div>
+  );
+}
+
+function sessionErrorMessage(error: unknown): string {
+  if (error instanceof ApiClientError && error.code === "API_UNAVAILABLE") return "The NEXUS backend could not be reached. Check that it is running and try again.";
+  return "Your session could not be checked. Please try again.";
+}
+
+function profileErrorMessage(error: unknown): string {
+  if (error instanceof ApiClientError && error.code === "API_UNAVAILABLE") return "The NEXUS backend could not be reached. Check that it is running and try again.";
+  if (error instanceof ApiClientError && error.code === "FINANCIAL_PROFILE_INCOMPLETE") return "Your saved profile needs attention before NEXUS can display its calculated metrics.";
+  if (error instanceof ApiClientError && error.code === "INVALID_API_RESPONSE") return "The backend returned financial data in an unexpected format. No values were displayed.";
+  return "Financial information could not be loaded. Please try again.";
 }
